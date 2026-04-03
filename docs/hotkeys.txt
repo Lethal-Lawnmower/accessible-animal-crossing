@@ -1,0 +1,73 @@
+Animal Crossing GC PC Port — Accessibility Hotkeys
+====================================================
+
+INFORMATION READOUTS
+----------------------------
+T     Time & weather readout (current hour, weather condition)
+G     Bells readout (wallet balance)
+M     Location readout (current acre/area name)
+
+F-KEY TOGGLES
+----------------------------
+F1    Toggle magnet auto-collect on/off
+F2    Scan for buried items (9x9 tile area around player)
+        Reports count, compass direction, and distance in steps
+F3    Toggle auto-catch mode on/off (bug catching)
+        When on, auto-navigates toward bugs and swings net automatically
+F4    Open/close accessibility settings menu
+        Toggle: Magnet, Auto Catch, Tile Tick, Nav Distance
+F5    Repeat last spoken text
+F7    Teleport to navigation target (outdoors)
+F8    Freeze/unfreeze tracked villager in place
+F10   Quick save game
+F11   Toggle exploration cursor (outdoors)
+        Arrow keys move cursor tile-by-tile, announces terrain/items
+F12   Open/close cheat menu
+        Bells, golden tools, fruit, mortgage cheats
+
+FURNITURE MODE (indoors only)
+----------------------------
+F     Toggle Furniture Mode on/off
+Shift+F  Announce wallpaper and carpet
+R     Room overview — lists all furniture NW to SE with positions
+
+Arrow Keys (while Furniture Mode is active):
+  Up/Down/Left/Right    Move virtual grid cursor
+                        Announces furniture name+size, empty cell, wall adjacency
+
+NAVIGATION SYSTEM
+----------------------------
+Shift+L         Next nav category (Villagers, Buildings, Houses, Items)
+Shift+J         Previous nav category
+
+L               Next item in current category, lock & announce
+J               Previous item in current category, lock & announce
+K               Directions to selected target (A* pathfinding outdoors)
+Shift+K         Full A* pathfinding with turn-by-turn directions
+
+AUTOMATIC ANNOUNCEMENTS (no hotkey needed)
+----------------------------
+- Tile tick sound: subtle click on each tile crossing (outdoors)
+- Navigation target persists across acre changes; "Target lost" if gone
+- Scene/location changes announced automatically
+- NPC house names on entry
+- Dialogue text spoken via TTS (speaker name prefix)
+- Menu selections, inventory items, choice windows
+- Warning/popup messages (all 28 types)
+- Bulletin board entries on open and page change
+- Letters read aloud (header, body, footer)
+- Bank overlay: wallet + account balances, digit position
+- Loan repayment overlay: money + remaining loan, digit position
+- Address book: name + position, cursor movement, page turns
+- Town map: acre labels, buildings, residents, "you are here"
+- Fishing: "Line cast", "Nibble", "Bite now!", "Caught [name]!", "Fish got away"
+- Bug catching: auto-approach, patience alerts, auto-swing, "Caught [name]!"
+- Fossil digging: "Unearthed [item name]" on dig completion
+- Magnet pickup: auto-collects dropped items, announces each pickup
+- Furniture push/pull: "[name], moving [direction]"
+- Furniture rotation: "[name], now facing [direction]"
+- Furniture blocked: "Blocked by [wall/furniture name]"
+- Tree proximity: type and contents when near a tree
+- Tree shake: item dropped, wasp warning, empty notification
+- Balloon: spawn direction, nearby alert, stuck location,
+  escape warning, present drop, lost in water

@@ -263,6 +263,23 @@ static int Player_actor_CatchSomethingCheck_common(ACTOR* actor, f32 frame) {
                     player->item_net_catch_insect_idx = aINS_INSECT_TYPE_INVALID;
                 }
                 Player_actor_sound_AMI_GET(actor);
+#ifdef TARGET_PC
+                {
+                    mActor_name_t caught_item = EMPTY_NO;
+                    if (type == 0 && label != 0) {
+                        caught_item = ((aINS_INSECT_ACTOR*)label)->item;
+                    } else if (label != 0) {
+                        if (((ACTOR*)label)->id == mAc_PROFILE_BEE) {
+                            caught_item = ITM_INSECT08; /* bee */
+                        } else {
+                            caught_item = ITM_INSECT38; /* ant */
+                        }
+                    }
+                    if (caught_item != EMPTY_NO) {
+                        pc_acc_bug_caught(caught_item);
+                    }
+                }
+#endif
                 ret = 1;
             }
 

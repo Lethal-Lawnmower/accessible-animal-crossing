@@ -3,6 +3,10 @@
 #include "audio.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "pc_accessibility.h"
+#include <stdio.h>
+#endif
 
 typedef struct editEndChk_win_data_s {
     int answer_num;
@@ -35,6 +39,17 @@ static u8 mEE_str_data0[3] = "Yes";
 static u8 mEE_str_data1[7] = "Rewrite";
 static u8 mEE_str_data2[12] = "Throw it out";
 
+#ifdef TARGET_PC
+static const char* mEE_answer_names[] = { "Yes", "Rewrite", "Throw it out" };
+
+static void mEE_acc_speak_answer(int answer, int answer_num) {
+    if (!pc_acc_is_active()) return;
+    if (answer >= 0 && answer < answer_num) {
+        pc_acc_speak_interrupt(mEE_answer_names[answer]);
+    }
+}
+#endif
+
 static void mEE_move_Move(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     (*submenu->overlay->move_Move_proc)(submenu, menu_info);
 }
@@ -55,6 +70,11 @@ static void mEE_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
         if (editEndChk_ovl->moving_in == FALSE) {
             editEndChk_ovl->moving_in = TRUE;
             editEndChk_ovl->scale = 0.0f;
+#ifdef TARGET_PC
+            if (pc_acc_is_active()) {
+                pc_acc_speak_interrupt("Is this OK? Yes");
+            }
+#endif
         } else {
             menu_info->proc_status = mSM_OVL_PROC_MOVE;
             menu_info->move_drt = mSM_MOVE_OUT_BOTTOM;
@@ -77,11 +97,17 @@ static void mEE_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
                 if (editEndChk_ovl->selected_answer != 0) {
                     editEndChk_ovl->selected_answer--;
                     sAdo_SysTrgStart(NA_SE_CURSOL);
+#ifdef TARGET_PC
+                    mEE_acc_speak_answer(editEndChk_ovl->selected_answer, data->answer_num);
+#endif
                 }
             } else if ((trigger & BUTTON_CDOWN)) {
                 if (editEndChk_ovl->selected_answer < max_answer_no) {
                     editEndChk_ovl->selected_answer++;
                     sAdo_SysTrgStart(NA_SE_CURSOL);
+#ifdef TARGET_PC
+                    mEE_acc_speak_answer(editEndChk_ovl->selected_answer, data->answer_num);
+#endif
                 }
             }
         }

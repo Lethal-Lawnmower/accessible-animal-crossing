@@ -4,6 +4,10 @@
 #include "m_font.h"
 #include "sys_matrix.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 static mTI_Ovl_c ti_ovl_data;
 
 static int mTI_col_type0[] = { 255,  0,   0 };
@@ -217,6 +221,10 @@ static void mTI_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
       sAdo_SysTrgStart(0x1);
     }
   }
+
+#ifdef TARGET_PC
+  pc_acc_timein_update(timeIn_ovl->sel_idx, timeIn_ovl->values, timeIn_ovl->values[mTI_IDX_MONTH]);
+#endif
 }
 
 static void mTI_move_End(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -537,6 +545,10 @@ static void mTI_timeIn_ovl_init(Submenu* submenu) {
 
   timeIn_ovl->sel_idx = mTI_IDX_HOUR;
   timeIn_ovl->input_disabled_flag = FALSE;
+
+#ifdef TARGET_PC
+  pc_acc_timein_opened(timeIn_ovl->sel_idx, timeIn_ovl->values, timeIn_ovl->values[mTI_IDX_MONTH]);
+#endif
 
   submenu->overlay->menu_control.animation_flag = FALSE;
   menu_info->proc_status = mSM_OVL_PROC_MOVE;

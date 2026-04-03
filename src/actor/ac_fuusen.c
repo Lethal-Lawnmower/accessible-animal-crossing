@@ -9,6 +9,9 @@
 #include "m_rcp.h"
 #include "sys_matrix.h"
 #include "zurumode.h"
+#ifdef TARGET_PC
+#include "pc_acc_tree.h"
+#endif
 
 static void aFSN_actor_ct(ACTOR* actorx, GAME* game);
 static void aFSN_actor_dt(ACTOR* actorx, GAME* game);
@@ -319,6 +322,9 @@ static void aFSN_escape(ACTOR* actorx, GAME* game) {
       if (mFI_Wpos2UtNum(&ut_x, &ut_z, pos)) {
         (*Common_Get(clip).bg_item_clip->fruit_set_proc)(ITM_PRESENT, ut_x, ut_z, 1, 1);
         fuusen->count = 1;
+#ifdef TARGET_PC
+        pc_acc_balloon_present_dropped(pos.x, pos.z);
+#endif
       }
     }
   }
@@ -416,6 +422,9 @@ static void aFSN_wood_stop_init(FUUSEN_ACTOR* fuusen, GAME* game) {
   fuusen->actor_class.speed = 0.0f;
   fuusen->escape_timer = 18000 + aFSN_ESCAPE_TIMER;
   sAdo_OngenTrgStart(0x402, &fuusen->actor_class.world.position);
+#ifdef TARGET_PC
+  pc_acc_balloon_stuck(fuusen->actor_class.world.position.x, fuusen->actor_class.world.position.z);
+#endif
 }
 
 static void aFSN_escape_init(FUUSEN_ACTOR* fuusen, GAME* game) {
@@ -423,6 +432,7 @@ static void aFSN_escape_init(FUUSEN_ACTOR* fuusen, GAME* game) {
   ACTOR* actorx = (ACTOR*)fuusen;
   f32 dx = player->actor_class.world.position.x - actorx->world.position.x;
   f32 dz = player->actor_class.world.position.z - actorx->world.position.z;
+  int from_tree = (fuusen->escape_timer != aFSN_ESCAPE_TIMER) ? 1 : 0;
 
   fuusen->count = 0;
   actorx->max_velocity_y = 5.0f;
@@ -437,6 +447,10 @@ static void aFSN_escape_init(FUUSEN_ACTOR* fuusen, GAME* game) {
       fuusen->look_up_flag = TRUE;
     }
   }
+
+#ifdef TARGET_PC
+  pc_acc_balloon_escaping(from_tree, actorx->world.position.x, actorx->world.position.z);
+#endif
 }
 
 typedef void (*aFSN_INIT_PROC)(FUUSEN_ACTOR*, GAME*);

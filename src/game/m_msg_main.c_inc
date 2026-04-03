@@ -367,6 +367,9 @@ extern int mMsg_ChangeMsgData(mMsg_Window_c* msg_p, int index) {
         msg_p->end_text_cursor_idx = 0;
         mMsg_Clear_CursolIndex(msg_p);
         mMsg_SetTimer(msg_p, 20.0f);
+#ifdef TARGET_PC
+        pc_acc_msg_speak(msg_p);
+#endif
         return TRUE;
     }
 

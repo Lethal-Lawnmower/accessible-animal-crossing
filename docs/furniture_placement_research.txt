@@ -1,0 +1,273 @@
+Indoor Furniture Placement System — Complete Technical Report
+=============================================================
+
+GRID SYSTEM
+-----------
+16x16 unit grid per room, but only positions 1-8 in both X and Z are valid
+for furniture (aMR_MIN_BOUND=1, aMR_MAX_BOUND=8). The boundary ring
+(row/column 0 and 9-15) contains walls (value 201 in the placement table).
+This gives an 8x8 playable grid.
+
+Each grid unit = 40 world units (mFI_UT_WORLDSIZE_X_F).
+Room total = 640x640 world units for the 16x16 grid.
+
+Grid is stored as a flat array: index = ut_x + ut_z * 16
+
+Two layers exist:
+  - Layer 0 — floor furniture
+  - Layer 1 — items placed on surfaces (tables)
+
+Each layer has its own FG grid (mFI_BkNum2UtFGTop_layer(0, 0, layer))
+and its own placement table (aMR_place_table[layer]).
+
+
+PLACEMENT TABLE
+---------------
+A 16x16 array of u8 values:
+  - 200 = empty, furniture can go here
+  - 201 = wall/boundary, blocked
+  - 0-199 = furniture actor ID occupying this cell
+
+When furniture is placed, its cells are set to the furniture's actor ID.
+When moved, old cells are cleared to 200, new cells are set.
+
+Defined in: src/actor/ac_furniture_data.c_inc (l_place_table, l_place_table2)
+
+
+FURNITURE SIZES
+---------------
+Three size categories, determined by aFTR_PROFILE.shape:
+
+  Shape                              Size   Grid cells occupied
+  --------------------------------   ----   -------------------
+  aFTR_SHAPE_TYPEA                   1x1    1 cell
+  aFTR_SHAPE_TYPEB_0/90/180/270     1x2    2 cells (rotation-dependent)
+  aFTR_SHAPE_TYPEC                   2x2    4 cells (always square)
+
+The _0/90/180/270 suffixes on TypeB indicate the rotation direction —
+which second cell is occupied relative to the base cell. Only TypeB_0
+furniture can be rotated by the player (cycling through 0->90->180->270).
+
+Occupied cell offsets stored in aMR_poccess_table:
+  TypeA:    {0}              (just the base)
+  TypeB_0:  {0, +1}          (extends +X)
+  TypeB_90: {0, -16}         (extends -Z)
+  TypeB_180:{0, -1}          (extends -X)
+  TypeB_270:{0, +16}         (extends +Z)
+  TypeC:    {0, +1, +16, +17} (2x2 square)
+
+
+FURNITURE PROFILE
+-----------------
+Each furniture item has a profile (aFTR_PROFILE) containing:
+  - shape          — grid size type (TYPEA/TYPEB/TYPEC)
+  - height         — world-unit height (f32)
+  - scale          — scale factor (typically 0.01f)
+  - move_bg_type   — collision footprint type (mCoBG_FTR_TYPE*)
+  - check_rotation — extra rotation collision checks flag
+  - contact_action — sit/bed behavior (aFTR_CONTACT_ACTION_*)
+  - interaction_type — flags (storage, no-collision, music, etc.)
+
+Profiles accessed via aMR_GetFurnitureProfile(ftr_no).
+Full profile array in: src/actor/ac_furniture_profile_data.c_inc (1276 entries)
+Individual profiles in: src/furniture/ac_*.c (one file per item)
+
+
+FURNITURE ACTOR (FTR_ACTOR)
+---------------------------
+Runtime state per furniture instance:
+  - name               — item ID (u16)
+  - id                 — furniture actor index
+  - position           — current world position (xyz_t)
+  - last_position      — previous position (for rollback)
+  - target_position    — destination during movement
+  - base_position      — offset from center (for rotatable furniture)
+  - shape_type         — current shape with rotation (u8)
+  - original_shape_type— original unrotated shape (u8)
+  - angle_y            — Y rotation in degrees (f32)
+  - angle_y_target     — target angle during rotation (f32)
+  - s_angle_y          — angle in binary angle format (s16)
+  - state              — movement state machine (aFTR_STATE_*)
+  - layer              — 0 (floor) or 1 (on surface)
+  - edge_collision[4]  — collision data for each edge
+  - items[3]           — stored items (music disks, etc.)
+  - switch_bit         — ON/OFF state (lights, etc.)
+
+
+HOW PUSH/PULL WORKS
+--------------------
+Not a free cursor system. The player physically walks up to furniture and
+pushes/pulls it one grid unit at a time by holding the analog stick into it.
+
+Flow:
+  1. Contact detection (aMR_AllContactCheck) — checks if player is touching
+     a furniture edge using collision edge data
+  2. Direction determination — stick direction maps to aMR_DIRECT_UP/LEFT/DOWN/RIGHT
+  3. Validation (aMR_JudgeFurnitureMove) — checks the target cells in the
+     placement table are 200 (empty) and the FG grid has EMPTY_NO
+  4. Movement — old cells cleared, furniture's target_position set to
+     position + 40 world units in direction, new cells written with furniture ID
+  5. Animation — push/pull animation plays, furniture smoothly slides to target
+
+Push moves furniture away from player. Pull moves it toward player.
+Rotation (left/right stick perpendicular) cycles TypeB_0 furniture through
+90-degree increments.
+
+State my_room->state == 7 = normal walking around room, ready for interaction.
+
+Key functions (all in src/actor/ac_my_room_action.c_inc):
+  - aMR_PlacePushFurniture()     — push logic, line 461
+  - aMR_PlacePullFurniture()     — pull logic
+  - aMR_PlaceKurukuruFurniture() — rotation logic
+  - aMR_SitDownFurniture()       — sit interaction
+
+Called from aMR_ManageMoveBottun() in src/actor/ac_my_room_move.c_inc:1341
+
+
+PLACEMENT VALIDATION
+--------------------
+aMR_JudgeFurnitureMove(u8 type, int ut):
+  - Gets the furniture's occupied cells via aMR_GetFurniturePoccessUnitNo()
+  - For each occupied cell:
+    - Checks placement table value == 200 (empty)
+    - Checks FG grid value == EMPTY_NO
+  - Returns TRUE if all cells are free, FALSE if blocked
+
+New furniture placement: aMR_JudgeBreedNewFurniture() handles placing
+furniture from inventory onto the grid.
+
+
+WALL ADJACENCY
+--------------
+Walls are at grid positions where the placement table = 201.
+Since the playable area is 1-8:
+  - North wall: row z=0
+  - South wall: row z=9+
+  - West wall:  column x=0
+  - East wall:  column x=9+
+
+So furniture at position (1, z) is adjacent to the west wall,
+(8, z) to the east wall, (x, 1) to the north wall, (x, 8) to the south wall.
+
+Door/entrance position found via mRmTp_GetEntranceBasePosition().
+FG grid stores door markers: RSV_DOOR, DOOR0, DOOR1, EXIT_DOOR.
+
+
+CONTACT/SELECTION SYSTEM
+------------------------
+aMR_contact_info_c structure:
+  - contact_flag       — whether player is touching furniture
+  - ftrID              — furniture actor ID in contact
+  - direction          — direction from player (UP/LEFT/DOWN/RIGHT)
+  - contact_side       — contact position (LEFT/RIGHT/CENTER)
+  - contact_percent    — normalized position along contacted edge
+  - contact_direction  — cardinal direction relative to furniture
+  - contact_edge_start/end — edge XZ coordinates
+
+Two contact info slots: my_room->contact0 (layer 0), my_room->contact1 (layer 1)
+
+
+FG GRID CONTENTS
+----------------
+The room's FG grid stores mActor_name_t item IDs at each cell.
+  - Furniture: FTR item numbers (range 0x1000-0x3FFF)
+  - Empty: EMPTY_NO
+  - Walls: RSV_WALL_NO
+  - Doors: RSV_DOOR, DOOR0, DOOR1, EXIT_DOOR
+
+To identify furniture at a grid position:
+  1. Read fg_p[ut_x + ut_z * 16]
+  2. Decode via mRmTp_FtrItemNo2FtrIdx() to get furniture index
+  3. Look up profile via aMR_GetFurnitureProfile()
+  4. Get name via mIN_copy_name_str()
+
+
+LAYER SYSTEM
+------------
+  - Layer 0 (mCoBG_LAYER0): floor furniture
+  - Layer 1 (mCoBG_LAYER1): items on surfaces (tables)
+
+Furniture placement types (aFTR_SET_TYPE_*):
+  - aFTR_SET_TYPE_NORMAL     — can't hold items on top
+  - aFTR_SET_TYPE_SURFACE    — is a table/surface
+  - aFTR_SET_TYPE_ON_SURFACE — can be placed on surfaces
+
+Parent-child relationships tracked via aMR_parent_ftr_c:
+  - parent_ftr.ftrID         — parent furniture actor ID
+  - parent_ftr.fit_ftr_table[4] — up to 4 items on a surface
+
+
+ROTATION SYSTEM
+---------------
+Only TypeB_0 furniture can rotate (4 orientations).
+Rotation checked via aMR_DecideKurukuruDirect().
+Rotation blocked if destination cells are occupied.
+
+Rotation pattern changes base_position via aMR_MoveShapeCenter().
+Forbidden positions checked via aMR_SearchCompleteObstacle().
+
+
+INTERACTION TYPES (aFTR_INTERACTION_*)
+--------------------------------------
+  NONE              = 0x0000
+  STORAGE_DRAWERS   = 0x0001  (dressers)
+  STORAGE_WARDROBE  = 0x0002  (double doors)
+  STORAGE_CLOSET    = 0x0004  (single door)
+  MUSIC_DISK        = 0x0008
+  NO_COLLISION      = 0x0010  (pass-through items)
+  HANIWA            = 0x0020
+  FISH              = 0x0040  (fish display)
+  INSECT            = 0x0080  (insect display)
+  MANNEKIN          = 0x0100  (mannequin)
+  UMBRELLA          = 0x0200
+  FOSSIL            = 0x0400
+  FAMICOM           = 0x0800  (NES console)
+  START_DISABLED    = 0x1000  (start OFF, e.g. TVs)
+  FAMICOM_ITEM      = 0x2000
+  RADIO_AEROBICS    = 0x4000
+  TOGGLE            = 0x8000
+
+
+CONTACT ACTION TYPES (aFTR_CONTACT_ACTION_*)
+---------------------------------------------
+  NONE                       = 0x00
+  CHAIR_UNIDIRECTIONAL       = 0x01  (front only)
+  CHAIR_MULTIDIRECTIONAL     = 0x02  (any direction)
+  CHAIR_SOFA                 = 0x04  (front + anywhere on surface)
+  BED_SINGLE                 = 0x08
+  BED_DOUBLE                 = 0x10  (can roll)
+
+
+KEY SOURCE FILES
+----------------
+  include/ac_my_room.h              — MY_ROOM_ACTOR struct, function typedefs
+  include/ac_furniture.h            — FTR_ACTOR struct, profile, enums
+  include/m_room_type.h             — furniture size types, utility functions
+  include/m_collision_bg.h          — collision footprint types
+  src/actor/ac_my_room.c            — main room actor (2375 lines)
+  src/actor/ac_my_room_move.c_inc   — movement, input handling, contact detection
+  src/actor/ac_my_room_action.c_inc — push/pull/rotate/sit actions
+  src/actor/ac_furniture_data.c_inc — placement tables, size info, profile array
+  src/actor/ac_furniture_profile_data.c_inc — profile pointer array (1276 entries)
+  src/game/m_room_type.c            — furniture size data, lookup functions
+  src/furniture/ac_*.c              — individual furniture profile definitions
+
+
+HOOKABLE DATA FOR ACCESSIBILITY
+--------------------------------
+At any moment during furniture interaction, we can access:
+
+  Furniture position:  ftr_actor->position -> aMR_Wpos2PlaceNumber -> (ut_x, ut_z)
+  Furniture name:      ftr_actor->name -> mIN_copy_name_str()
+  Furniture size:      ftr_actor->shape_type -> TYPEA/B/C
+  Adjacent cells:      check placement table at (ut_x +/- 1, ut_z +/- 1)
+  Placement validity:  aMR_JudgeFurnitureMove(shape_type, target_ut)
+  Contact info:        my_room->contact0.ftrID, .direction, .contact_flag
+  All room furniture:  iterate FG grid positions 1-8 in both X and Z
+
+Best hook points:
+  1. aMR_PlacePushFurniture  — after successful/failed push
+  2. aMR_PlacePullFurniture  — after successful/failed pull
+  3. aMR_PlaceKurukuruFurniture — after rotation
+  4. aMR_AllContactCheck     — when player touches furniture
+  5. Room entry              — announce all furniture positions as overview

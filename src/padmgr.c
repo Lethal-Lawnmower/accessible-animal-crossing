@@ -6,6 +6,12 @@
 
 #ifdef TARGET_PC
 #include "dolphin/pad.h"
+#include "pc_acc_hotkeys.h"
+#include "pc_acc_nav.h"
+#include "pc_acc_magnet.h"
+#include "pc_acc_furniture.h"
+#include "pc_acc_gameplay.h"
+#include "pc_acc_tree.h"
 #endif
 
 static int frame = 0;
@@ -360,6 +366,24 @@ static void padmgr_UpdatePC(void) {
 
     /* Process cur_pads into pads (button triggers, stick deltas, etc.) */
     padmgr_HandleDoneReadPadMsg();
+
+    /* Check accessibility hotkeys (F1=time, F2=bells, F3=location) */
+    pc_acc_hotkeys_update();
+
+    /* Navigation assistance (scan nearby, NPC proximity) */
+    pc_acc_nav_update();
+
+    /* Magnet pickup — auto-collect player-generated drops */
+    pc_acc_magnet_update();
+
+    /* Furniture Mode — room scanning, push/pull narration */
+    pc_acc_furniture_update();
+
+    /* Gameplay — buried item scanning (F9) */
+    pc_acc_gameplay_update();
+
+    /* Tree proximity + balloon tracking */
+    pc_acc_tree_update();
 }
 #endif
 

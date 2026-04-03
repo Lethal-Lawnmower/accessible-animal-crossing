@@ -441,11 +441,18 @@ static void aMR_PlacePullFurniture(MY_ROOM_ACTOR* my_room, aMR_contact_info_c* c
                             if (aMR_GokiburiPos_Pull(&goki_pos, ftr_actor, player)) {
                                 aMR_MakeGokiburi(&goki_pos, game, 1);
                             }
+#ifdef TARGET_PC
+                            pc_acc_furniture_moved(ftr_actor->name, ftr_actor->shape_type,
+                                                    direct, target_ut_x, target_ut_z, ftr_actor->layer);
+#endif
                         } else {
                             /* Can't move the furniture */
                             aMR_SetInfoFurnitureTable(ftr_actor->shape_type, ut, ftr_actor->id, ftr_actor->layer);
                             aMR_SetFurniture2FG(ftr_actor, ftr_actor->position, TRUE);
                             aMR_SetBubu(player, my_room, game, &my_room->pull_bubu);
+#ifdef TARGET_PC
+                            pc_acc_furniture_blocked(direct, ftr_actor->name, target_ut_x, target_ut_z);
+#endif
                         }
                     } else {
                         aMR_SetBubu(player, my_room, game, &my_room->pull_bubu);
@@ -522,11 +529,19 @@ static void aMR_PlacePushFurniture(MY_ROOM_ACTOR* my_room, aMR_contact_info_c* c
                     if (aMR_GokiburiPos_Push(&goki_pos, ftr_actor, player)) {
                         aMR_MakeGokiburi(&goki_pos, game, 1);
                     }
+#ifdef TARGET_PC
+                    pc_acc_furniture_moved(ftr_actor->name, ftr_actor->shape_type,
+                                           aMR_PullDirect2PushDirect(direct), target_ut_x, target_ut_z, ftr_actor->layer);
+#endif
                 } else {
                     /* Can't move the furniture */
                     aMR_SetInfoFurnitureTable(ftr_actor->shape_type, ut, ftr_actor->id, ftr_actor->layer);
                     aMR_SetFurniture2FG(ftr_actor, ftr_actor->position, TRUE);
                     aMR_SetBubu(player, my_room, game, &my_room->push_bubu);
+#ifdef TARGET_PC
+                    pc_acc_furniture_blocked(aMR_PullDirect2PushDirect(direct), ftr_actor->name,
+                                              target_ut_x, target_ut_z);
+#endif
                 }
             }
         }
@@ -1246,6 +1261,9 @@ static void aMR_PlaceKurukuruFurniture(MY_ROOM_ACTOR* my_room, aMR_contact_info_
                         if (aMR_GokiburiPos_Rotate(&goki_pos, ftr_actor, player)) {
                             aMR_MakeGokiburi(&goki_pos, game, 1);
                         }
+#ifdef TARGET_PC
+                        pc_acc_furniture_rotated(ftr_actor->name, ftr_actor->shape_type);
+#endif
                         return;
                     } else {
                         /* Failed to rotate */
@@ -1264,6 +1282,9 @@ static void aMR_PlaceKurukuruFurniture(MY_ROOM_ACTOR* my_room, aMR_contact_info_
                         aMR_SetInfoFurnitureTable(ftr_actor->shape_type, ftr_ut, ftr_actor->id, ftr_actor->layer);
                         aMR_SetFurniture2FG(ftr_actor, ftr_actor->position, TRUE);
                         mMkRm_ReportChangePlayerRoom();
+#ifdef TARGET_PC
+                        pc_acc_furniture_rotated(ftr_actor->name, ftr_actor->shape_type);
+#endif
                         return;
                     } else {
                         aMR_SetBubu(player, my_room, game, NULL);

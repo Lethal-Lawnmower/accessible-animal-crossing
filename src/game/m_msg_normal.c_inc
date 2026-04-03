@@ -69,6 +69,9 @@ static void mMsg_request_main_index_fromNormal(mMsg_Window_c* msg_p, GAME* game)
         mMsg_sound_PAGE_OKURI();
       }
 
+#ifdef TARGET_PC
+      pc_acc_msg_speak_from(msg_p, msg_p->end_text_cursor_idx);
+#endif
       mMsg_Unset_ForceNext(msg_p);
     }
   }

@@ -5,6 +5,10 @@
 #include "m_common_data.h"
 #include "m_font.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 static mCW_Ovl_c cpwarning_ovl_data;
 
 static u8 mCW_mes0[18] = "Do you want to let";
@@ -187,6 +191,15 @@ extern void mCW_cpwarning_ovl_construct(Submenu* submenu) {
 
     mCW_cpwarning_ovl_init(submenu, menu_info);
     mCW_cpwarning_ovl_set_proc(submenu);
+
+#ifdef TARGET_PC
+    {
+        const u8* strs[] = { mCW_mes0, mCW_mes1, mCW_yes_mes, mCW_no_mes };
+        int lens[] = { ARRAY_COUNT(mCW_mes0), ARRAY_COUNT(mCW_mes1),
+                       ARRAY_COUNT(mCW_yes_mes), ARRAY_COUNT(mCW_no_mes) };
+        pc_acc_warning_opened(-1, strs, lens, 4);
+    }
+#endif
 }
 
 extern void mCW_cpwarning_ovl_destruct(Submenu* submenu) {

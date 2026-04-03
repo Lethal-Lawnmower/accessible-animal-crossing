@@ -6,6 +6,10 @@
 #include "m_player_lib.h"
 #include "sys_matrix.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 static mRP_Ovl_c rp_ovl_data;
 static mActor_name_t mRP_money_name[MONEY_NUM] = { ITM_MONEY_100, ITM_MONEY_1000, ITM_MONEY_10000, ITM_MONEY_30000 };
 static u32 mRP_money_amount[MONEY_NUM] = { 100, 1000, 10000, 30000 };
@@ -128,6 +132,10 @@ static void mRP_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     repay_ovl->loan = Common_Get(now_private)->inventory.loan - repay_amount;
     repay_ovl->repay_amount = repay_amount;
   }
+
+#ifdef TARGET_PC
+  pc_acc_repay_update(repay_ovl->cursor_idx, repay_ovl->repay_amount, repay_ovl->money, repay_ovl->loan);
+#endif
 }
 
 static void mRP_move_End(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -362,6 +370,10 @@ extern void mRP_repay_ovl_construct(Submenu* submenu) {
 
   mRP_repay_ovl_init(submenu);
   mRP_repay_ovl_set_proc(submenu);
+
+#ifdef TARGET_PC
+  pc_acc_repay_opened(overlay->repay_ovl->money, overlay->repay_ovl->loan);
+#endif
 }
 
 extern void mRP_repay_ovl_destruct(Submenu* submenu) {

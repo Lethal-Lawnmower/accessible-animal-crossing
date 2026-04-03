@@ -7,6 +7,10 @@
 #include "m_tag_ovl.h"
 #include "sys_matrix.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 static mBD_Ovl_c board_ovl_data;
 
 extern Gfx lat_letter01_model[];
@@ -848,6 +852,15 @@ static void mBD_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
         menu_info->proc_status = mSM_OVL_PROC_OBEY;
         submenu->overlay->board_ovl->center_line = 2;
         mSM_open_submenu(submenu, mSM_OVL_EDITENDCHK, mEE_TYPE_BOARD, 0);
+#ifdef TARGET_PC
+        {
+            mBD_Ovl_c* board_ovl = submenu->overlay->board_ovl;
+            pc_acc_board_opened(
+                board_ovl->mail.content.header, board_ovl->lengths[mBD_FIELD_HEADER],
+                board_ovl->mail.content.body, board_ovl->lengths[mBD_FIELD_BODY],
+                board_ovl->mail.content.footer, board_ovl->lengths[mBD_FIELD_FOOTER]);
+        }
+#endif
     } else {
         mBD_roll_control(submenu, menu_info);
     }
@@ -1361,6 +1374,19 @@ extern void mBD_board_ovl_construct(Submenu* submenu) {
 
     mBD_board_ovl_init(submenu);
     mBD_board_ovl_set_proc(submenu);
+
+#ifdef TARGET_PC
+    {
+        mSM_MenuInfo_c* menu_info = &submenu->overlay->menu_info[mSM_OVL_BOARD];
+        mBD_Ovl_c* board_ovl = submenu->overlay->board_ovl;
+        if (menu_info->data0 == mSM_BD_OPEN_READ || menu_info->data0 == mSM_BD_OPEN_READ_ISLAND) {
+            pc_acc_board_opened(
+                board_ovl->mail.content.header, board_ovl->lengths[mBD_FIELD_HEADER],
+                board_ovl->mail.content.body, board_ovl->lengths[mBD_FIELD_BODY],
+                board_ovl->mail.content.footer, board_ovl->lengths[mBD_FIELD_FOOTER]);
+        }
+    }
+#endif
 }
 
 extern void mBD_board_ovl_destruct(Submenu* submenu) {

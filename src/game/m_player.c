@@ -25,6 +25,10 @@
 #include "ac_gyo_release.h"
 #include "jsyswrap.h"
 #include "ac_set_ovl_gyoei.h"
+#ifdef TARGET_PC
+#include "pc_acc_gameplay.h"
+#include "pc_acc_tree.h"
+#endif
 #include "m_vibctl.h"
 #include "m_debug.h"
 

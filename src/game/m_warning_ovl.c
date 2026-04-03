@@ -4,6 +4,10 @@
 #include "sys_matrix.h"
 #include "m_font.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 typedef struct warning_ovl_line_s {
   f32 pos_x;
   f32 pos_y;
@@ -483,6 +487,23 @@ extern void mWR_warning_ovl_construct(Submenu* submenu) {
 
   mWR_warning_ovl_init(submenu);
   mWR_warning_ovl_set_proc(submenu);
+
+#ifdef TARGET_PC
+  {
+    int str_no = overlay->menu_info[mSM_OVL_WARNING].data0;
+    mWR_data_c* data = &wr_win_data[str_no];
+    if (data->lines != NULL && data->num_lines > 0) {
+      const u8* strs[8];
+      int lens[8];
+      int n = data->num_lines < 8 ? data->num_lines : 8;
+      for (int i = 0; i < n; i++) {
+        strs[i] = data->lines[i].str;
+        lens[i] = data->lines[i].str_len;
+      }
+      pc_acc_warning_opened(str_no, strs, lens, n);
+    }
+  }
+#endif
 }
 
 extern void mWR_warning_ovl_destruct(Submenu* submenu) {

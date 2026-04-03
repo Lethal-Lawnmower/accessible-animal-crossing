@@ -1,6 +1,9 @@
 #include "ac_uki.h"
 
 #include "m_play.h"
+#ifdef TARGET_PC
+#include "pc_acc_gameplay.h"
+#endif
 #include "m_name_table.h"
 #include "ac_set_ovl_gyoei.h"
 #include "m_vibctl.h"

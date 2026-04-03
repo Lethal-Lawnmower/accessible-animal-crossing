@@ -34,6 +34,9 @@ compile_commands.json
 
 # Miscellaneous
 /*.txt
+!README.txt
+!PATCH_NOTES_0.1.1.txt
+!KEYBINDINGS.txt
 !requirements.txt
 *.exe
 

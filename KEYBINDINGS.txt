@@ -1,0 +1,202 @@
+Animal Crossing GC PC Port - Complete Keybinding Reference
+============================================================
+
+This document lists every key binding in the project, covering both the
+base PC port controls and the accessibility mod additions.
+
+
+========================================================================
+SECTION 1: BASE PC PORT BINDINGS
+========================================================================
+
+These controls emulate the GameCube controller. They are defined in
+keybindings.ini and can be remapped by the player.
+
+GAME BUTTONS
+------------------------------------------------------------------------
+Key             GC Button       What it does
+------------------------------------------------------------------------
+Space           A               Primary action (talk, pick up, confirm)
+Left Shift      B               Secondary action (cancel, run, back)
+X               X               Open inventory
+Y               Y               Pick up / use equipped tool
+Return/Enter    Start           Open map / pause
+Z               Z               Camera snap
+Q               L               Open chat / letter interface
+E               R               Quick-select equipped item
+
+MOVEMENT (Main Stick)
+------------------------------------------------------------------------
+Key             GC Input        What it does
+------------------------------------------------------------------------
+W               Stick Up        Walk north
+S               Stick Down      Walk south
+A               Stick Left      Walk west
+D               Stick Right     Walk east
+
+CAMERA (C-Stick)
+------------------------------------------------------------------------
+Key             GC Input        What it does
+------------------------------------------------------------------------
+Up Arrow        C-Stick Up      Camera up
+Down Arrow      C-Stick Down    Camera down
+Left Arrow      C-Stick Left    Camera left
+Right Arrow     C-Stick Right   Camera right
+
+Note: Arrow keys are suppressed from C-stick input when Furniture Mode
+is active indoors.
+
+D-PAD
+------------------------------------------------------------------------
+Key             GC Input        What it does
+------------------------------------------------------------------------
+I               D-Pad Up        D-pad up (menus, pattern select)
+K               D-Pad Down      D-pad down (menus, pattern select)
+J               D-Pad Left      D-pad left (menus, pattern select)
+L               D-Pad Right     D-pad right (menus, pattern select)
+
+Note: J, K, and L are suppressed from D-pad input when the accessibility
+system is active, since the navigation system uses those keys.
+
+TEXT EDITOR (active when typing letters/town name/etc.)
+------------------------------------------------------------------------
+Key             What it does
+------------------------------------------------------------------------
+All letter keys Character input (captured by text editor)
+Backspace       Delete character
+Return          Submit / confirm entry
+Numpad Enter    Submit / confirm entry (alternative)
+Tab             Context-dependent command
+Arrow keys      Move text cursor
+
+Note: When the text editor is active, all keyboard-to-controller
+mappings are suppressed so typing does not trigger game actions.
+
+MODEL VIEWER (debug feature, separate game mode)
+------------------------------------------------------------------------
+Key             What it does
+------------------------------------------------------------------------
+Tab             Cycle model category (Structures, NPCs, Fish)
+Left Shift      Next model in category
+Left Ctrl       Previous model in category
+Space           Previous model (alternative, via A button)
+Return          Toggle animation pause (via Start button)
+WASD            Orbit camera
+I / K           Zoom in / out (via D-pad up/down)
+J / L           Pan left / right (via D-pad left/right)
+
+
+========================================================================
+SECTION 2: ACCESSIBILITY MOD BINDINGS
+========================================================================
+
+These are hardcoded in the accessibility modules and are NOT affected
+by keybindings.ini remapping. They use direct SDL scancode checks.
+
+INFORMATION READOUTS (always active when accessibility is on)
+------------------------------------------------------------------------
+Key             What it does
+------------------------------------------------------------------------
+T               Time and weather readout
+                "3:45 p.m., clear"
+
+G               Wallet balance readout
+                "12500 bells"
+
+M               Location readout
+                Outdoors: "Outdoors, Acre C-3"
+                Indoors: building/room name
+
+F-KEY TOGGLES (always active when accessibility is on)
+------------------------------------------------------------------------
+Key             What it does
+------------------------------------------------------------------------
+F1              Toggle magnet auto-collect on/off
+                Auto-collects dropped items nearby
+
+F2              Scan for buried items (outdoors)
+                Announces count + direction to nearest
+
+F3              Toggle auto-catch mode on/off
+                Bug catching assistance
+
+FURNITURE MODE (indoors only)
+------------------------------------------------------------------------
+Key             What it does
+------------------------------------------------------------------------
+F               Toggle Furniture Mode on/off
+Shift+F         Announce wallpaper and carpet
+R               Room overview (all furniture listed, NW to SE)
+
+Arrow keys while Furniture Mode is active:
+Up Arrow        Move grid cursor north
+Down Arrow      Move grid cursor south
+Left Arrow      Move grid cursor west
+Right Arrow     Move grid cursor east
+                Announces furniture name, size, and wall adjacency
+
+Note: When Furniture Mode is active, arrow keys are consumed by the
+cursor and do NOT send C-stick camera input.
+
+FURNITURE PUSH/PULL/ROTATE (indoors, automatic)
+------------------------------------------------------------------------
+These announcements fire automatically when you push, pull, or rotate
+furniture. No hotkey required.
+
+Push/Pull       "[Furniture name], moving [direction]"
+                Enhanced mode (Furniture Mode on) adds wall adjacency
+                and nearby furniture info.
+
+Blocked         "Blocked by [wall/furniture name]"
+
+Rotation        "[Furniture name], now facing [direction]"
+
+NAVIGATION SYSTEM (primarily outdoors)
+------------------------------------------------------------------------
+Key             What it does
+------------------------------------------------------------------------
+Shift+L         Next nav category
+                Cycles: Villagers, Buildings, Houses, Items
+
+Shift+J         Previous nav category
+
+L (no shift)    Next item in current category
+                Locks target, announces name + direction + distance
+
+J (no shift)    Previous item in current category
+                Locks target, announces name + direction + distance
+
+K (no shift)    Directions to selected target
+                Outdoors: A* pathfinding, turn-by-turn
+                Indoors: compass direction + step count
+
+Shift+K         A* pathfinding to target (outdoors only)
+                Full turn-by-turn walking directions
+
+Note: When the accessibility system is active, J/K/L are consumed by
+the navigation system and do NOT send D-pad input to the game.
+
+AUTOMATIC ANNOUNCEMENTS (no hotkey required)
+------------------------------------------------------------------------
+These fire automatically based on game state changes:
+
+- Scene/building entry and exit
+- Acre changes when walking outdoors
+- Villager house names (with resident name)
+- NPC dialogue spoken via TTS
+- Menu selections and inventory items
+- Popup/warning messages (all 28 types)
+- Bulletin board entries
+- Letters (header, body, footer)
+- Bank overlay (wallet + savings, digit position)
+- Loan repayment overlay
+- Address book (name, cursor, page turns)
+- Town map (acre labels, buildings, residents, current position)
+- Fishing: cast, nibble, bite, catch, escape
+- Bug catching: detection, patience alerts, range, catch result
+- Fossil digging: unearthed item name
+- Magnet pickup: auto-collect announcements
+- Tree proximity (type and contents when near a tree)
+- Tree shake results (item dropped, wasp warning, empty)
+- Balloon events (spawn direction, nearby alert, stuck location,
+  escape warning, present drop, lost in water)

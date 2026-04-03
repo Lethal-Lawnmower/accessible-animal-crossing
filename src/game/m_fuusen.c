@@ -6,6 +6,9 @@
 #include "m_private.h"
 #include "m_event.h"
 #include "m_common_data.h"
+#ifdef TARGET_PC
+#include "pc_acc_tree.h"
+#endif
 
 int fuusen_DEBUG_mode_flag;
 
@@ -21,6 +24,9 @@ extern void Balloon_make_fuusen(GAME_PLAY* play) {
     Common_Set(balloon_state, Balloon_STATE_SPAWNED);
     Common_Set(balloon_spawn_percent, (1.0f - Common_Get(balloon_spawn_percent)) * 0.1f);
     fuusen_DEBUG_mode_flag = TRUE;
+#ifdef TARGET_PC
+    pc_acc_balloon_spawned();
+#endif
   }
   else {
     Common_Set(balloon_state, Balloon_STATE_PENDING_SPAWN);

@@ -3,8 +3,37 @@
 #include "m_common_data.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "pc_accessibility.h"
+#include <stdio.h>
+#endif
 
 static mBR_Ovl_c birthday_ovl_data;
+
+#ifdef TARGET_PC
+static const char* s_month_names[12] = {
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+};
+
+static void mBR_acc_speak_field(mBR_Ovl_c* ovl) {
+    if (!pc_acc_is_active()) return;
+    char buf[128];
+    int idx = ovl->idx;
+    u16 month = ovl->birthday_data[mBR_Ovl_IDX_MONTH];
+    u16 day = ovl->birthday_data[mBR_Ovl_IDX_DAY];
+
+    if (idx == mBR_Ovl_IDX_MONTH) {
+        snprintf(buf, sizeof(buf), "Month: %s",
+                 (month >= 1 && month <= 12) ? s_month_names[month - 1] : "?");
+    } else if (idx == mBR_Ovl_IDX_DAY) {
+        snprintf(buf, sizeof(buf), "Day: %d", (int)day);
+    } else {
+        snprintf(buf, sizeof(buf), "OK");
+    }
+    pc_acc_speak_interrupt(buf);
+}
+#endif
 
 static void mBR_window_close(Submenu* submenu, mSM_MenuInfo_c* menu_info, mBR_Ovl_c* birthday_ovl) {
   u16* data_p = birthday_ovl->birthday_data;
@@ -30,6 +59,9 @@ static void mBR_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     if (*idx_p != 0) {
       (*idx_p)--;
       sAdo_SysTrgStart(0x1003);
+#ifdef TARGET_PC
+      mBR_acc_speak_field(birthday_ovl);
+#endif
     }
   }
   else if ((trigger & BUTTON_START)) {
@@ -44,6 +76,9 @@ static void mBR_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     else {
       (*idx_p)++;
       sAdo_SysTrgStart(NA_SE_SENTAKU_KETTEI);
+#ifdef TARGET_PC
+      mBR_acc_speak_field(birthday_ovl);
+#endif
     }
   }
   else if ((trigger & (BUTTON_CUP | BUTTON_CDOWN))) {
@@ -84,6 +119,9 @@ static void mBR_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
       }
 
       sAdo_SysTrgStart(NA_SE_CURSOL);
+#ifdef TARGET_PC
+      mBR_acc_speak_field(birthday_ovl);
+#endif
     }
   }
 }
@@ -248,6 +286,11 @@ static void mBR_birthday_ovl_init(Submenu* submenu) {
   birthday_ovl->birthday_data[mBR_Ovl_IDX_MONTH] = lbRTC_JANUARY;
   birthday_ovl->birthday_data[mBR_Ovl_IDX_DAY] = 1;
   sAdo_SysTrgStart(0x17C);
+#ifdef TARGET_PC
+  if (pc_acc_is_active()) {
+      pc_acc_speak_interrupt("When's your birthday? Month: January");
+  }
+#endif
 }
 
 extern void mBR_birthday_ovl_construct(Submenu* submenu) {

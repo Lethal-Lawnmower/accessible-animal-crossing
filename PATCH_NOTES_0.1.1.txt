@@ -1,0 +1,215 @@
+ACGC Accessibility Mod - Patch Notes v0.1.1
+============================================
+
+NEW FEATURES
+-------------
+
+1. Full Town Navigation Scan
+   - Navigation system now scans all 30 playable acres instead of just the
+     9-acre ring around the player.
+   - Buildings, villagers, and houses are visible from anywhere in town.
+   - NAV_MAX_RESULTS increased from 32 to 64 to accommodate larger result sets.
+   - "No [category] nearby" messages changed to "No [category] found" to reflect
+     the town-wide scope.
+
+2. Target Lock Persistence
+   - Locked navigation target now persists when crossing acre boundaries.
+   - Uses stable ID matching to re-find the same entity after acre transitions.
+   - Announces "Target lost" only if the entity genuinely disappears from
+     the world (e.g. villager goes indoors), rather than silently switching
+     to a different target.
+
+3. Tile Tick Sound
+   - A subtle audible click plays every time the player crosses a tile boundary
+     while outdoors.
+   - Generated as an in-memory WAV: 60ms duration, 1.2kHz sine wave, amplitude
+     16000, sharp 10% attack phase with cubic decay envelope.
+   - Played via PlaySound (SND_MEMORY | SND_ASYNC | SND_NOSTOP) to avoid
+     interfering with game audio.
+   - Uses prev_tile_x/z tracking in pc_acc_nav.c.
+
+4. Player House Spatial Labels
+   - All 4 player house slots are now always shown in the Houses navigation
+     category, regardless of distance.
+   - Each house is labeled by its quadrant position in town: "top left",
+     "top right", "bottom left", "bottom right".
+   - Current player's house labeled "Your house, [position]".
+   - Other players' houses labeled by their character name and position.
+   - Empty house slots labeled "Empty house, [position]".
+   - Uses mHS_get_pl_no() and Save_Get(private_data[]) for player name
+     resolution.
+
+5. Auto Bug Catching
+   - When auto-catch is enabled and a net is equipped, the player automatically
+     navigates toward the nearest bug.
+   - Approach speed adapts to per-species spook distance:
+     * Creep (speed 20) when inside 80% of spook range
+     * Moderate (speed 40) near spook boundary (80-120%)
+     * Full speed (speed 72) when far away
+   - Auto-swing: automatically presses A when within net catch range
+     (39 units for regular net, 45 for golden net).
+   - Bug detection range expanded from 2x spook distance to full acre
+     (640 world units).
+   - Targets nearest bug; re-targets after catch if more bugs present.
+   - F3 toggles auto-catch on/off (on by default when net equipped).
+   - Input injection via pc_acc_gameplay_get_auto_input() consumed by pc_pad.c.
+
+6. Repeat Last Speech (F5)
+   - Press F5 at any time to hear the last spoken TTS text again.
+   - Stores up to 512 characters of the most recent speech output.
+   - Useful for catching dialogue or announcements you may have missed.
+
+7. Braille Display Support
+   - All TTS speech output is now automatically sent to connected braille
+     displays alongside the spoken audio.
+   - Uses Tolk's built-in braille detection — if a braille display is
+     connected through NVDA or another supported screen reader, it will
+     receive every message automatically.
+   - No additional configuration required; works transparently.
+
+8. Inventory Character Slot Announcement
+   - Hovering over the player character slot in the inventory now announces
+     "Your character" when nothing is equipped.
+   - When an item is equipped, announces "Your character, holding [item name]".
+   - Previously this slot was silent (announced nothing or "Empty").
+   - pc_acc_tag_item_changed() updated to accept table type parameter;
+     call site in m_tag_ovl.c passes tag->table.
+
+BUG FIXES
+----------
+
+9. Tile Tick Sound Volume
+   - Initial implementation was too quiet and not pronounced enough.
+   - Increased duration from 30ms to 60ms.
+   - Lowered frequency from 2kHz to 1.2kHz for a more audible, deeper tone.
+   - Quadrupled amplitude from 4000 to 16000.
+   - Added sharp 10% attack phase before the cubic decay envelope for a
+     more distinct "click" character.
+
+10. Auto-Catch Walks Into Rivers
+    - Auto-catch would walk the player into water, off cliffs, and through
+      other impassable terrain while pursuing bugs.
+    - Added mCoBG_Unit2CheckNpc() walkability check on the tile directly
+      ahead in the desired direction.
+    - When the direct path is blocked, the system evaluates all 4 cardinal
+      directions, picks the walkable one with the best dot-product score
+      toward the target (i.e. the most progress-making detour).
+    - If completely surrounded by unwalkable tiles, stick input stays at
+      zero (player stops).
+
+11. Auto-Catch Engages Bugs Over Water
+    - Auto-catch would attempt to approach bugs sitting on water tiles,
+      causing the player to walk to the water's edge and get stuck.
+    - Added walkability check on the bug's own tile position before engaging
+      auto-approach. If the bug is over unwalkable terrain (water, cliff,
+      building), auto-approach is skipped entirely for that bug.
+
+12. Building Scanner Missing Most Structures
+    - Navigation system was not detecting the train station, post office,
+      Able Sisters, museum, or most other town structures.
+    - ROOT CAUSE: combi_table[bz][bx].combination_type is an INDEX into the
+      ROM data table data_combi_table[], NOT the block type enum directly.
+      The code was comparing raw index values (e.g. 42) against block type
+      enums (e.g. 11 for mCoBG_CBT_POLICE), which almost never matched.
+    - Fixed all 3 occurrences in pc_acc_nav.c to perform the correct
+      two-step lookup:
+        data_combi_table[Save_Get(combi_table[bz][bx]).combination_type].type
+      instead of:
+        Save_Get(combi_table[bz][bx]).combination_type
+
+KEYBIND CHANGES
+----------------
+
+13. F3 Fast-Forward Conflict Resolved
+    - F3 was bound to both the port's frame limiter toggle (fast-forward)
+      and the accessibility auto-catch toggle.
+    - Removed the fast-forward bind from pc_main.c.
+    - F3 now exclusively toggles auto-catch mode.
+
+14. F5 Bound to Repeat Last Speech
+    - New keybind: F5 repeats the last spoken TTS text.
+    - No prior conflict — F5 was previously unbound.
+
+CODE CHANGES (by file)
+-----------------------
+
+pc/src/pc_acc_nav.c:
+  - Added includes: m_house.h, m_private.h, m_personal_id.h,
+    m_random_field.h, <windows.h>, <mmsystem.h>
+  - NAV_MAX_RESULTS: 32 -> 64
+  - Removed s_ring_dx[]/s_ring_dz[] arrays and acre_in_ring() helper
+  - Added acre_in_bounds() helper
+  - Added house_slot_label() for spatial quadrant labels
+  - Added tile tick WAV generator (s_tick_wav[], nav_play_tick())
+  - Added tile boundary detection in pc_acc_nav_update()
+  - All scanning loops changed from 9-acre ring to full 30-acre sweep
+  - combi_table lookups fixed (3 occurrences) to use data_combi_table[]
+  - Player house enumeration: all 4 slots with spatial labels
+  - Target lock: stable ID matching + "Target lost" announcement
+  - "No X nearby" -> "No X found"
+
+pc/src/pc_acc_gameplay.c:
+  - Added #include "m_collision_bg.h"
+  - Added static auto-input variables (s_auto_stick_x/y, s_auto_press_a)
+  - update_bug_scanning(): reset auto-input each frame, expanded detection
+    range to 640 units, auto-approach with obstacle avoidance, auto-swing
+  - Added bug-over-water walkability check before engaging auto-approach
+  - Added pc_acc_gameplay_get_auto_input() getter (clears press_a after read)
+  - Non-Windows stub for getter
+
+pc/include/pc_acc_gameplay.h:
+  - Added declaration for pc_acc_gameplay_get_auto_input()
+
+pc/src/pc_pad.c:
+  - Added #include "pc_acc_gameplay.h"
+  - Auto-catch input injection before final status assignment:
+    reads stick/button from pc_acc_gameplay_get_auto_input(), overrides
+    controller input when auto-catch is actively steering
+
+pc/src/pc_accessibility.c:
+  - Added s_last_text[512] buffer for repeat functionality
+  - pc_acc_speak() now stores text in s_last_text before speaking
+  - pc_acc_speak() now also sends to braille display if one is connected
+    (checks Tolk_HasBraille() before calling Tolk_Braille())
+  - Added pc_acc_repeat_last() function
+  - Added non-Windows stub for pc_acc_repeat_last()
+
+pc/include/pc_accessibility.h:
+  - Added declaration for pc_acc_repeat_last()
+
+pc/src/pc_acc_menu.c:
+  - pc_acc_tag_item_changed() signature changed: added int table parameter
+  - When table == mTG_TABLE_PLAYER and slot is empty: announces
+    "Your character" instead of "Empty"
+  - When table == mTG_TABLE_PLAYER and item equipped: announces
+    "Your character, holding [item name]"
+  - Non-Windows stub updated with new signature
+
+pc/include/pc_acc_menu.h:
+  - pc_acc_tag_item_changed() declaration updated with int table parameter
+
+src/game/m_tag_ovl.c:
+  - Call site updated to pass tag->table as third argument to
+    pc_acc_tag_item_changed()
+
+pc/src/pc_main.c:
+  - Removed F3/SDLK_F3 frame limiter toggle (g_pc_no_framelimit)
+  - Replaced with comment: "F3 reserved for accessibility (auto-catch toggle)"
+
+pc/src/pc_acc_hotkeys.c:
+  - Added s_prev_f5 key state tracking
+  - Added F5 handler: calls pc_acc_repeat_last() on press
+
+docs/hotkeys.txt:
+  - Updated with auto-catch description under F3
+  - Updated with tile tick sound and target persistence under automatic
+    announcements
+
+README.txt:
+  - Updated version to 0.1.1
+  - Added Getting Started section (title screen, new game, finding Nook's,
+    acre system, tile tick explanation)
+  - Added Troubleshooting section (audio/timing issues, title screen
+    animation)
+  - Updated Navigation section for full town scan
+  - Updated Bug Catching section for auto-approach and auto-catch

@@ -1,5 +1,9 @@
 #include "m_notice_ovl.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 #include "m_bgm.h"
 #include "m_common_data.h"
 #include "m_editor_ovl.h"
@@ -172,6 +176,9 @@ static void mNT_Play_page_read(Submenu* submenu, mSM_MenuInfo_c* menu_info, mNT_
     }
 
     if (move_page != 0) {
+#ifdef TARGET_PC
+        int orig_page = notice_ovl->now_page;
+#endif
 
         move_time = ABS(move_page);
         notice_ovl->mode = mNT_PLAY_PAGE_MOVE;
@@ -191,6 +198,17 @@ static void mNT_Play_page_read(Submenu* submenu, mSM_MenuInfo_c* menu_info, mNT_
         }
 
         sAdo_SysTrgStart(0x5F);
+
+#ifdef TARGET_PC
+        {
+            int final_page = orig_page + move_page;
+            if (final_page >= 0 && final_page < notice_ovl->page_count) {
+                mNtc_board_post_c* post = Save_GetPointer(noticeboard[final_page]);
+                pc_acc_notice_page_changed(final_page, notice_ovl->page_count,
+                                           post->message, MAIL_BODY_LEN, &post->post_time);
+            }
+        }
+#endif
     }
 }
 
@@ -701,6 +719,19 @@ static void mNT_notice_ovl_init(Submenu* submenu) {
     mNT_set_init_data(submenu->overlay->notice_ovl, menu_info);
     submenu->overlay->notice_ovl->stick_area = mED_STICK_AREA_CENTER;
     mBGMPsComp_pause(3);
+
+#ifdef TARGET_PC
+    {
+        mNT_Ovl_c* nt = submenu->overlay->notice_ovl;
+        if (nt->page_count > 0) {
+            mNtc_board_post_c* post = Save_GetPointer(noticeboard[nt->now_page]);
+            pc_acc_notice_opened(nt->now_page, nt->page_count,
+                                 post->message, MAIL_BODY_LEN, &post->post_time);
+        } else {
+            pc_acc_notice_opened(0, 0, NULL, 0, NULL);
+        }
+    }
+#endif
 }
 
 extern void mNT_notice_ovl_construct(Submenu* submenu) {

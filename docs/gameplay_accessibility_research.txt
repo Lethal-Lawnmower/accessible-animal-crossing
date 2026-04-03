@@ -1,0 +1,539 @@
+================================================================================
+GAMEPLAY ACCESSIBILITY RESEARCH — Bug Catching, Fishing, Fossil Digging
+================================================================================
+
+Research completed 2026-03-30. All findings sourced from decompiled source code.
+
+================================================================================
+1. BUG CATCHING
+================================================================================
+
+1.1 PER-SPECIES PROFILE DATA
+-----------------------------
+
+Source: ac_insect_move.c_inc:75-117 (catch_ME_data[] array)
+        ac_insect_h.h:14 (aINS_MAX_STRESS_DIST)
+
+Flee/spook distance = aINS_MAX_STRESS_DIST + catch_ME_data[insect_type]
+    aINS_MAX_STRESS_DIST = 3 * mFI_UNIT_BASE_SIZE_F = 3 * 40.0 = 120.0 world units
+
+Per-species offsets (catch_ME_data[]):
+    Butterflies (types 0-3):           +0.0  → 120 units (3 tiles)
+    Cicadas (types 4-7):               +10.0 → 130 units (3.25 tiles)
+    Bee (type 8):                      +10.0 → 130 units
+    Dragonflies (types 9-12):          +0.0  → 120 units
+    Long Locust (type 13):             +0.0  → 120 units
+    Migratory Locust (type 14):        +20.0 → 140 units (3.5 tiles)
+    Crickets (types 15-18):            -20.0 → 100 units (2.5 tiles)
+    Beetles (types 19-23):             -20.0 → 100 units
+    Ladybug (type 24):                 +0.0  → 120 units
+    Spotted Ladybug (type 25):         -20.0 → 100 units
+    Mantis (type 26):                  -20.0 → 100 units
+    Firefly (type 27):                 +0.0  → 120 units
+    Cockroach (type 28):               +0.0  → 120 units
+    Stag Beetles (types 29-31):        +0.0  → 120 units
+    Snail (type 32):                   +0.0  → 120 units
+    Mole Cricket (type 33):            +0.0  → 120 units
+    Pond Skater (type 34):             +0.0  → 120 units
+    Bagworm (type 35):                 +0.0  → 120 units
+    Pill Bug (type 36):                +0.0  → 120 units
+    Spider (type 37):                  +0.0  → 120 units
+    Ant (type 38):                     +0.0  → 120 units
+    Mosquito (type 39):                +0.0  → 120 units
+
+Tool-specific scare distances (additional, from individual insect files):
+    Source: ac_ins_semi.c:26-29, ac_ins_kabuto.c:9-12, ac_ins_chou.c
+
+    Net equipped:    70 units (cicadas/beetles), 60 units (butterflies)
+    Ball equipped:   60 units
+    Shovel equipped: 30 units
+    Axe/vibration:   150 units
+
+
+1.2 MOVEMENT TYPES AND FLEE SPEEDS
+-----------------------------------
+
+Source: Individual insect type files
+
+Butterfly (ac_ins_chou.c:529-589):
+    Movement: Flying, no gravity (airborne, erratic)
+    Flee speed: target_speed = 3.0, speed_step = 0.3
+    Normal fly: target_speed = 2.0, speed_step = 0.2
+    Hover: stationary
+
+Locust — Migratory (ac_ins_batta.c:247-272):
+    Movement: Ground-based jumper with gravity
+    Flee speed: 7.5, position_speed.y = 9.0, gravity = 0.6
+    Style: High jumping arcs
+
+Locust — Others (ac_ins_batta.c:460-523):
+    Movement: Ground-based jumper
+    Flee speed: 5.0, position_speed.y = 3.0, gravity = 0.3
+    Style: Low jumps
+
+Cicada/Bee (ac_ins_semi.c:296-304):
+    Movement: Stationary on tree, flies when fleeing
+    Flee speed: 4.0, max_velocity_y = 12.0, gravity = 0.06 (near zero)
+    Style: Tree → airborne escape
+
+Beetle (ac_ins_kabuto.c:243-251):
+    Movement: Stationary on tree, flies when fleeing
+    Flee speed: 4.0, gravity = 0.06
+    Style: Tree → airborne escape
+
+Dragonfly (ac_ins_tonbo.c):
+    Movement: Flying
+    Style: Airborne, circling patterns
+
+Cockroach (ac_ins_goki.c):
+    Movement: Ground crawling, fast
+    Style: Floor scurrier
+
+Mole Cricket (ac_ins_kera.c):
+    Movement: Underground
+    Style: Invisible, audio-only detection
+
+Pond Skater (ac_ins_amenbo.c):
+    Movement: On water surface
+    Style: Water gliding
+
+
+1.3 INSECT STATE MACHINE
+--------------------------
+
+Source: ac_ins_chou.c:9-18, ac_ins_batta.c:9-18, ac_ins_semi.c:16-22, ac_ins_kabuto.c:20-26
+
+Common state pattern across all species:
+    ACTION_AVOID (0)       — fleeing from player/threat
+    ACTION_LET_ESCAPE (1)  — despawning, leaving the area
+    ACTION_WAIT/REST (2+)  — idle, species-specific sub-states
+
+Butterfly states:
+    0 = AVOID, 1 = LET_ESCAPE, 2 = FLY, 3 = LANDING, 4 = HOVER, 5 = REST
+
+Locust states:
+    0 = AVOID, 1 = LET_ESCAPE, 2 = CHANGE_DIRECTION, 3 = WAIT, 4 = JUMP, 5 = DROWN
+
+Cicada states:
+    0 = AVOID, 1 = LET_ESCAPE, 2 = WAIT
+
+Beetle states:
+    0 = AVOID, 1 = LET_ESCAPE, 2 = WAIT
+
+The patience field (ac_insect_h.h:131):
+    Range: 0.0 (calm) to 100.0 (panicked)
+    Decrease: -0.5 per frame when no stress detected
+    Increase: +stress * 0.5 per frame when stressed
+    FLEE TRIGGER: patience > 90.0 (consistent across ALL species)
+
+Stress calculation (ac_insect_move.c_inc:120-178):
+    Function: aINS_get_stress()
+    Checks: player proximity, NPC proximity, BG actor proximity
+    Formula: stress = nearby_actor_speed × distance_multiplier
+    Distance multiplier table: { 0.3, 1.0, 2.0, 5.0, 10.0 }
+    Max stress distance: aINS_MAX_STRESS_DIST + catch_ME_data[type]
+
+
+1.4 NET CATCH DETECTION
+-------------------------
+
+Source: m_player_main_swing_net.c_inc:104-163
+
+Function: Player_actor_Item_CheckLocalCapture_forNet()
+
+Capture geometry:
+    Regular net: radius = 15.0 + target_catch_radius, sweep length = 50 units
+    Gold net:    radius = 21.0 + target_catch_radius, sweep length = 60 units
+
+Insect catch radius (registered per-species):
+    Most species: 24.0 (ac_insect_move.c_inc:302-326)
+
+Effective catch range:
+    Regular net: 15.0 + 24.0 = 39.0 units from net center
+    Gold net:    21.0 + 24.0 = 45.0 units from net center
+
+Catch check triggers at animation frame > 6.0 (line 295)
+
+Catch request registration (ac_insect_move.c_inc:332-343):
+    Each insect registers itself into player's catch request table via:
+    GET_PLAYER_ACTOR_NOW()->Set_Item_net_catch_request_table_proc()
+    Tables: item_net_catch_label_request_table (actor pointers)
+            item_net_catch_type_request_table  (catch type: 0=insect, 1=bee, 2=ant)
+            item_net_catch_pos_request_table   (xyz_t positions)
+            item_net_catch_radius_request_table (f32 catch radii)
+
+
+1.5 POSITION TRACKING AT RUNTIME
+----------------------------------
+
+Source: ac_insect_h.h:179-183, ac_insect_clip.c_inc
+
+Global controller: aINS_ctrlActor (type aINS_CTRL_ACTOR)
+
+Structure:
+    aINS_CTRL_ACTOR {
+        ACTOR actor_class;
+        aINS_INSECT_ACTOR insect_actor[9];   // 9 slots total
+    }
+
+Slot allocation:
+    Slots 0-7: Normal insects (up to 8 concurrent)
+    Slot 8:    Reserved for special spawns (ants/bees from external actors)
+
+Iteration pattern:
+    for (i = 0; i < 8; i++) {
+        aINS_INSECT_ACTOR* insect = &ctrl->insect_actor[i];
+        if (insect->exist_flag == TRUE) {
+            xyz_t pos = insect->tools_actor.actor_class.world.position;
+            int type = insect->type;           // species enum
+            mActor_name_t item = insect->item; // item ID for name lookup
+            float patience = insect->patience; // fear level 0-100
+        }
+    }
+
+
+1.6 SPAWN SYSTEM
+-----------------
+
+Source: ac_set_ovl_insect.c:19-500+, ac_insect_clip.c_inc:179-283
+
+Spawn tables organized by month and week, with entries specifying:
+    - Species type (aINS_INSECT_TYPE_*)
+    - Spawn area (FLYING, ON_TREE, ON_FLOWER, ON_GROUND, ON_WATER, UNDER_ROCK, UNDERGROUND)
+    - Weight (relative spawn probability)
+
+Spawn count per species (l_insect_birth_sum[]):
+    Most species: {1, 0} = exactly 1 spawn
+    Red Dragonfly: {6, 3} = 6-8 spawns
+    Firefly:       {6, 3} = 6-8 spawns
+
+Lifetime per insect: 216000 frames (~1 hour at 60fps)
+
+
+================================================================================
+2. FISHING
+================================================================================
+
+2.1 BITE DETECTION AND TIMING WINDOW
+--------------------------------------
+
+Source: ac_uki_move.c_inc:893-915
+
+Bobber state (gyo_status on UKI_ACTOR):
+    0 = idle
+    1 = ready/floating on water
+    2 = nibble (touch) — do NOT press A
+    3 = bite — MUST press A
+    4 = reeling in
+    5 = pre-catch (player pressed A during bite, reeling successful)
+    6 = caught (success)
+    7 = getting item
+    8 = done
+
+CRITICAL: There is NO audio distinction between nibble and bite.
+Only vibration intensity differs. This is the #1 accessibility gap.
+
+Hook point: aUKI_set_proc_bite() at ac_uki_move.c_inc:893
+    Sets gyo_status = 3 and starts frame_timer countdown.
+
+Bite window by fish size (base timer × 2):
+
+    Size    Base    Actual (×2)    Seconds @60fps    Examples
+    -----   ----    -----------    --------------    --------
+    XXS     26      52 frames      0.87s             Bitterling
+    XS      39      78 frames      1.30s             Dace
+    S       39      78 frames      1.30s             Eel
+    M       39      78 frames      1.30s             Bass
+    L       52      104 frames     1.73s             Carp
+    XL      65      130 frames     2.17s             Giant Catfish
+    XXL     78      156 frames     2.60s             Arapaima
+    WHALE   78      156 frames     2.60s             Whale
+
+    Trash items (Can/Boot/Tire): FIXED 26 frames (0.43s), no doubling
+
+
+2.2 NIBBLE VS BITE FLOW
+-------------------------
+
+Source: ac_uki_move.c_inc, ac_gyo_test.c
+
+Sequence:
+    1. Bobber lands on water → gyo_status = 1 (WAIT/FLOAT)
+    2. Fish approaches bobber (aGTT_near, ac_gyo_test.c:536-563)
+       Touch distance by size: { 12, 13, 15, 15, 20, 25, 30, 30 } units
+    3. Fish sets gyo_command = 1 → TOUCH procedure starts
+    4. gyo_status = 2 (NIBBLE), frame_timer = 12
+       Vibration: gentle (VIB_PROG_FFF, 1-frame sustain)
+    5. Fish nibbles up to 5 times (touch_counter = 5)
+       25% chance each nibble the fish backs off temporarily
+       Touch count timer per size: { 19, 19, 19, 19, 20, 22, 24, 24 } frames (×2 + random 0-30)
+    6. Fish sets gyo_command = 2 → BITE procedure starts
+    7. gyo_status = 3 (BITE), frame_timer set per size table
+       Vibration: strong (VIB_PROG_IMPACT, 60-frame sustain, 5-frame attack)
+    8. Player MUST press A (command 6) during bite window
+
+If player presses A during nibble:
+    Goes to HIT procedure, but must wait for frame_timer to reach 0.
+    Does NOT catch the fish — effectively wastes the attempt.
+
+
+2.3 CASTING SYSTEM
+-------------------
+
+Source: ac_uki_move.c_inc:842-849
+
+No power meter. Single button press to cast.
+Landing position: pre-calculated from player input direction, stored in cast_goal_point.
+Bobber follows parabolic arc: 50 frames flight time, cast_timer = 40.
+On water impact: transitions to WAIT (floating), status = aUKI_STATUS_FLOAT.
+
+
+2.4 FISH ESCAPE PATHS
+-----------------------
+
+Source: ac_uki_move.c_inc, ac_gyo_test.c
+
+Path 1 — Bite timer expires (player didn't press A):
+    aUKI_hit() at line 637-643
+    gyo_status resets to 0, gyo_command = 0
+    Bobber returns to CARRY state
+
+Path 2 — Fish-side bite timer expires:
+    ac_gyo_test.c aGTT_bite, work0 timer
+    Window varies by rod and bite_time index:
+        Regular rod: { 10, 11, 12, 15, 45 } frames (×2)
+        Gold rod:    { 11, 12, 13, 18, 60 } frames (×2)
+    Fish escapes, shadow actor created
+
+Path 3 — Player presses A during nibble:
+    Goes to HIT but frame_timer must expire first
+    Results in failed attempt if fish hasn't bitten yet
+
+Path 4 — Force command 7/8:
+    Command 7: force abort/retreat (rod reels in)
+    Command 8: force reel in (event-driven)
+
+Path 5 — Warp event:
+    Player enters door during fishing → fish escapes immediately
+    ac_gyo_test.c aGTT_warp_event
+
+
+2.5 FISH SPAWN SYSTEM
+-----------------------
+
+Source: ac_set_ovl_gyoei.c, ac_gyo_test.c
+
+Spawn determined by:
+    - Month (12 months)
+    - Time period (4 per month)
+    - Water type (river, sea, pond — separate spawn lists)
+    - Weighted random selection per species
+
+Fish must be within touch_distance of bobber to start nibbling:
+    { 12, 13, 15, 15, 20, 25, 30, 30 } units by size
+
+Spawn search area: { 40, 40, 40, 50, 60 } units by fish search_area field
+
+Water type validation: mCoBG_CheckWaterAttribute() — river, sea, pond, waterfall, pool
+
+
+2.6 VIBRATION DATA
+--------------------
+
+Source: ac_uki_move.c_inc:164-209
+
+Nibble vibration (aUKI_touch_vib_proc):
+    Pattern: VIB_PROG_FFF (gentle)
+    Size    n_frames  attack  sustain  release
+    XXS     60        0       1        10
+    XS      70        0       1        10
+    S       80        0       1        10
+    M       90        0       1        10
+    L       100       0       1        10
+    XL      100       1       2        9
+    XXL     100       2       2        7
+
+Bite vibration (aUKI_bite_vib_proc):
+    Pattern: VIB_PROG_IMPACT (strong)
+    Size    n_frames  attack  sustain  release
+    XXS     40        5       60       3
+    XS      50        5       60       3
+    S       60        5       60       3
+    M       70        5       60       3
+    L       80        5       60       3
+    XL      90        5       60       3
+    XXL     100       5       60       3
+
+
+================================================================================
+3. FOSSIL DIGGING
+================================================================================
+
+3.1 DAILY FOSSIL PLACEMENT
+----------------------------
+
+Source: m_museum.c:550-592, m_all_grow_ovl.c:3055-3135
+
+Entry point: mMsm_DepositFossil(deposit_record, fossil_count, cancel_ut, send_order_info)
+
+Algorithm:
+    1. Max fossils per day: mMsm_DEPOSIT_FOSSIL_MAX = 5
+    2. Actual placed = 5 - already_stored_fossils
+    3. Selects random block columns (block_x 1-5) not yet used
+       Tracked by deposit_record bitfield (1 bit per column)
+    4. For each column, iterates Z-acres (block_z 0-5)
+       Skips invalid terrain: player house, shrine, station, pool, dump
+    5. Picks random valid unit tile within selected acre
+    6. Places ITM_FOSSIL (0x2434) at that FG grid position
+
+Fossil storage: FG grid entries — NOT world coordinates.
+    Grid: 5 blocks × 6 blocks, each 16×16 units = 7680 total tiles outdoor
+
+Called during daily grow cycle:
+    m_all_grow_ovl.c:3100-3103 (first-time load)
+    m_all_grow_ovl.c:3131-3135 (daily renewal)
+
+Sequence in daily renewal:
+    mAGrw_SetCancelUtInfo(l_cancel_ut);         // mark occupied tiles
+    mMsm_DepositFossil(record, num, cancel, 1); // place fossils
+    mAGrw_SetDigItem(shine_pos, haniwa, cancel); // place SHINE_SPOTs
+
+
+3.2 SHINE_SPOT MARKERS
+------------------------
+
+Source: m_name_table.h:661, m_all_grow_ovl.c:2302-2457
+
+SHINE_SPOT = 0x005C — marks a diggable spot on the FG grid
+HOLE_SHINE = 0x005D — a dug hole with shine effect (different thing)
+
+Placement function: mAGrw_SetDigItem() at m_all_grow_ovl.c:2457
+    Called after fossil deposition
+    Scans for valid burial spots across all blocks
+
+Placement validation (mAGrw_SetShineGroundBlock, line 2302-2338):
+    - Tile not in cancel_ut bitfield
+    - Tile is EMPTY_NO
+    - Has hole-digging-capable collision attribute
+    - Flat terrain (all collision corners at same height)
+    - Not sand holes
+
+IMPORTANT: SHINE_SPOT is NOT exclusively fossils. Can also mark:
+    - Buried bells (money)
+    - Gyroids
+    - Pitfall seeds (ITM_PITFALL, 0x2435)
+
+You CANNOT determine what's buried from the SHINE_SPOT alone.
+The actual buried item is stored in the deposit system separately.
+
+
+3.3 SHOVEL INTERACTION
+-----------------------
+
+Source: m_player_main_dig_scoop.c_inc, m_player_main_get_scoop.c_inc
+
+Digging is POSITION-BASED, not exact-tile.
+    Target stored as xyz_t world position in mPlayer_main_dig_scoop_c.target_pos
+
+Flow:
+    1. Player swings shovel
+       → Player_actor_request_main_dig_scoop_all(game, pos, item, priority)
+       Stores target position and item name
+    2. Animation plays (DIG1 or DIG_KABU1 for stumps)
+    3. At animation frame 20.0:
+       → mCoBG_RegistDecalCircle() creates hole visual
+       → bg_item_clip->dig_hole_effect_entry_proc() renders hole
+    4. If item at position is not EMPTY_NO and not SHINE_SPOT:
+       → fly_entry_proc() makes item fly out (direct extraction)
+    5. If item IS SHINE_SPOT:
+       → Transitions to Get_scoop procedure
+       → Player_actor_setup_main_Get_scoop() extracts buried item
+       → mFI_GetUnitFG(dig_pos) checks actual FG content
+       → mPlib_Get_space_putin_item_forTICKET() handles inventory
+       → Item name shown via mIN_copy_name_str() in demo sequence
+
+Sound triggers:
+    Frame 15.0: scoop1 sound + dig vibration (normal)
+    Frame 15.0: kirikabu_scoop + stump vibration (stump dig)
+    Frame 21.0: ITEM_HORIDASHI sound (item unearthed)
+
+
+3.4 FG GRID SCANNING
+----------------------
+
+Source: m_field_info.c:1630-1663
+
+mFI_search_unit_around(xyz_t* wpos, mActor_name_t item):
+    Searches 9 tiles (3×3) around input position
+    Offsets: (-40,-40), (-40,+40), (+40,+40), (+40,-40),
+             (-40,0), (0,+40), (+40,0), (0,-40), (0,0)
+    Returns TRUE if found, updates wpos to match location
+    Stops at first match
+
+For wider scanning, use mFI_GetUnitFG(pos) with arbitrary positions:
+    Returns pointer to mActor_name_t at that world position
+    NULL if out of bounds
+
+Coordinate conversion:
+    World → grid: mFI_Wpos2UtNum(&ut_x, &ut_z, wpos)
+        ut_x = (int)(wpos.x / 40.0)
+        ut_z = (int)(wpos.z / 40.0)
+    Grid → world center:
+        wpos.x = ut_x * 40.0 + 20.0
+        wpos.z = ut_z * 40.0 + 20.0
+
+Block-level access:
+    mFI_BkNumtoUtFGTop(bx, bz) → pointer to 16×16 mActor_name_t array
+    mFI_BkNum2UtFGTop_layer(bx, bz, layer) → same but layer-specific
+
+Grid constants:
+    UT_BASE_NUM = 16 (units per block edge)
+    FG_BLOCK_X_NUM = 5, FG_BLOCK_Z_NUM = 6
+    mFI_UNIT_BASE_SIZE = 40 world units per grid unit
+    mFI_BK_WORLDSIZE_BASE = 640 world units per block (16 × 40)
+
+Deposit bitfield access:
+    mFI_UtNum2DepositGet(ut_x, ut_z) → TRUE if buried item at position
+    Structure: u16 deposit[30][16] — 1 bit per ut_x within each row
+
+
+3.5 BURIED ITEM TYPES
+-----------------------
+
+Source: m_all_grow_ovl.c, m_name_table.h
+
+Items that can appear as SHINE_SPOT:
+    ITM_FOSSIL (0x2434)     — museum fossils, 3-5 per day
+    Bells (various)         — buried money
+    Gyroids (various)       — buried gyroids from rain
+    ITM_PITFALL (0x2435)    — pitfall seeds
+
+Detection before digging: NOT POSSIBLE from SHINE_SPOT alone.
+    Must dig to discover what's buried.
+    Actual item resolved during Get_scoop procedure.
+
+
+================================================================================
+4. IMPLEMENTATION STRATEGY NOTES
+================================================================================
+
+Bug catching approach data:
+    - catch_ME_data[] gives species-specific spook distances
+    - patience field (0-100) gives real-time fear level
+    - 9 insect slots iterable for position/type/state
+    - Net catch geometry: 39 units (regular), 45 units (gold)
+    - Flee trigger at patience > 90.0
+
+Fishing bite hook:
+    - aUKI_set_proc_bite() is the exact hook point (gyo_status = 3)
+    - Bite window: 52-156 frames (0.87-2.60 seconds) by fish size
+    - No audio cue exists — TTS/audio cue is CRITICAL
+    - Nibble uses gyo_status = 2, gentle vibration
+    - Bite uses gyo_status = 3, strong vibration
+
+Fossil navigation integration:
+    - SHINE_SPOT (0x005C) on FG grid marks ALL buried items
+    - Scan with mFI_GetUnitFG() across player area
+    - Convert grid positions to world coordinates for nav targets
+    - Player walks to spot and digs normally
+    - 9×9 tile scan (±4 tiles) covers 360×360 world units

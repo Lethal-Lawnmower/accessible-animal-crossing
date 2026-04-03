@@ -641,6 +641,9 @@ static void aUKI_hit(ACTOR* actorx, GAME* game) {
             uki->gyo_command = 0;
             uki->gyo_status = 0;
             aUKI_set_proc(actorx, game, aUKI_PROC_CARRY, 0);
+#ifdef TARGET_PC
+            pc_acc_fishing_escape();
+#endif
         }
     } else {
         aUKI_parabola_move(actorx, 1);
@@ -843,6 +846,9 @@ static void aUKI_set_proc_cast(ACTOR* actorx, GAME* game, int arg) {
     uki->cast_timer = 40;
     aUKI_parabola_init(uki, &actorx->world.position, &uki->cast_goal_point, uki->frame_timer, 1);
     uki->status = aUKI_STATUS_CAST;
+#ifdef TARGET_PC
+    pc_acc_fishing_cast();
+#endif
 }
 
 static void aUKI_set_proc_wait(ACTOR* actorx, GAME* game, int arg) {
@@ -882,6 +888,9 @@ static void aUKI_set_proc_touch(ACTOR* actorx, GAME* game, int arg) {
 
     uki->frame_timer = 12;
     uki->gyo_status = 2;
+#ifdef TARGET_PC
+    pc_acc_fishing_nibble();
+#endif
 }
 
 static void aUKI_set_proc_bite(ACTOR* actorx, GAME* game, int arg) {
@@ -903,6 +912,9 @@ static void aUKI_set_proc_bite(ACTOR* actorx, GAME* game, int arg) {
     }
 
     uki->gyo_status = 3;
+#ifdef TARGET_PC
+    pc_acc_fishing_bite();
+#endif
 }
 
 static void aUKI_set_proc_catch(ACTOR* actorx, GAME* game, int arg) {
@@ -911,6 +923,9 @@ static void aUKI_set_proc_catch(ACTOR* actorx, GAME* game, int arg) {
     uki->frame_timer = 20;
     uki->gyo_status = 6;
     uki->status = aUKI_STATUS_CATCH;
+#ifdef TARGET_PC
+    pc_acc_fishing_catch(uki->gyo_type);
+#endif
 }
 
 static void aUKI_set_proc_get(ACTOR* actorx, GAME* game, int arg) {

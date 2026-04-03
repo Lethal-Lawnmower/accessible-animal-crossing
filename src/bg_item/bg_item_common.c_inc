@@ -1,3 +1,8 @@
+#ifdef TARGET_PC
+#include "pc_acc_magnet.h"
+#include "pc_acc_tree.h"
+#endif
+
 static void bit_cmn_single_drawS(GAME* game, bg_item_common_info_c* common_info, mActor_name_t fg_item, xyz_t* pos,
                                  s_xyz* angle, xyz_t* scale, u8 alpha, bIT_DRAW_BF_PROC draw_bf,
                                  bIT_DRAW_AF_PROC draw_af, rgba_t* col);
@@ -686,6 +691,10 @@ static void bIT_actor_drop_move_fly_destruct(bg_item_drop_c* drop) {
                 bIT_common_hole_throw(drop->fg_item, *fg_item_p, &drop->target_position, 1);
             } else {
                 mFI_SetFG_common(drop->fg_item, drop->target_position, FALSE);
+#ifdef TARGET_PC
+                pc_acc_magnet_notify_drop(drop->fg_item,
+                    drop->target_position.x, drop->target_position.y, drop->target_position.z);
+#endif
             }
         }
 
@@ -1040,6 +1049,8 @@ static void drop_fruit(mActor_name_t fg_item, int ut_x, int ut_z, xyz_t* drop_po
 
                 mSP_SelectRandomItem_New(NULL, &ftr_item, 1, NULL, 0, mSP_KIND_FURNITURE, list, FALSE);
                 fruit_set(ftr_item, ut_x, ut_z, fg_ytable[i].drop_count, 0, drop_pos, parent_actor);
+                /* Accessibility: announce furniture drop */
+                pc_acc_tree_drop(ftr_item, fg_ytable[i].drop_count);
             } else {
                 mActor_name_t drop_item = item;
 
@@ -1050,6 +1061,8 @@ static void drop_fruit(mActor_name_t fg_item, int ut_x, int ut_z, xyz_t* drop_po
                 }
 
                 fruit_set(drop_item, ut_x, ut_z, fg_ytable[i].drop_count, 0, drop_pos, parent_actor);
+                /* Accessibility: announce item drop */
+                pc_acc_tree_drop(drop_item, fg_ytable[i].drop_count);
             }
 
             mFI_UtNum2CenterWpos(&tree_pos, ut_x, ut_z);
@@ -1690,6 +1703,10 @@ static void bIT_actor_drop_move_fly(bg_item_drop_c* drop) {
 
             if ((drop->flags & 4) == 0) {
                 mFI_SetFG_common(drop->fg_item, drop->target_position, TRUE);
+#ifdef TARGET_PC
+                pc_acc_magnet_notify_drop(drop->fg_item,
+                    drop->target_position.x, drop->target_position.y, drop->target_position.z);
+#endif
             }
         }
     } else {

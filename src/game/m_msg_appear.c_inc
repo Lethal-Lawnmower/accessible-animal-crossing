@@ -82,6 +82,9 @@ static void mMsg_MainSetup_Appear(mMsg_Window_c* msg_p, GAME* game) {
         }
 
         msg_p->data_loaded = TRUE;
+#ifdef TARGET_PC
+        pc_acc_msg_speak(msg_p);
+#endif
         emu64_refresh();
     } else {
         msg_p->data_loaded = FALSE;

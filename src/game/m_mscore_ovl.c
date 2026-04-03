@@ -8,8 +8,42 @@
 #include "sys_matrix.h"
 #include "m_font.h"
 #include "m_bgm.h"
+#ifdef TARGET_PC
+#include "pc_accessibility.h"
+#include <stdio.h>
+#endif
 
 static mMS_Ovl_c mscore_ovl_data;
+
+#ifdef TARGET_PC
+static const char* s_note_names[16] = {
+    "G3", "A3", "B3", "C4", "D4", "E4", "F4",
+    "G4", "A4", "B4", "C5", "D5", "E5",
+    "Random", "Rest", "Off"
+};
+
+static void mMS_acc_speak_slot(mMS_Ovl_c* ovl) {
+    if (!pc_acc_is_active()) return;
+    char buf[64];
+    int idx = ovl->cursor_idx;
+    if (idx >= 0 && idx < 16) {
+        snprintf(buf, sizeof(buf), "Slot %d, %s", idx + 1, s_note_names[ovl->melody[idx]]);
+    } else if (idx == 16) {
+        snprintf(buf, sizeof(buf), "Finish");
+    } else {
+        return;
+    }
+    pc_acc_speak_interrupt(buf);
+}
+
+static void mMS_acc_speak_note(mMS_Ovl_c* ovl) {
+    if (!pc_acc_is_active()) return;
+    int idx = ovl->cursor_idx;
+    if (idx >= 0 && idx < 16) {
+        pc_acc_speak_interrupt(s_note_names[ovl->melody[idx]]);
+    }
+}
+#endif
 
 enum {
     mMS_SCALE_IN,
@@ -216,6 +250,9 @@ static void mMS_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
                     (*note_p)--;
                     sAdo_SysTrgStart(single_se[*note_p]);
                 }
+#ifdef TARGET_PC
+                mMS_acc_speak_note(mscore_ovl);
+#endif
             }
         } else if ((trigger & BUTTON_CUP)) {
             if (*note_p != 13) {
@@ -228,6 +265,9 @@ static void mMS_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
                 if (*note_p != 14 && *note_p != 15) {
                     sAdo_SysTrgStart(single_se[*note_p]);
                 }
+#ifdef TARGET_PC
+                mMS_acc_speak_note(mscore_ovl);
+#endif
             }
         }
     }
@@ -243,6 +283,9 @@ static void mMS_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
         } else {
             sAdo_SysTrgStart(NA_SE_CURSOL);
         }
+#ifdef TARGET_PC
+        mMS_acc_speak_slot(mscore_ovl);
+#endif
     } else {
         mscore_ovl->anim_frame = (mscore_ovl->anim_frame + 1) % 18;
     }
@@ -276,6 +319,11 @@ static void mMS_move_Obey(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
         if (mscore_ovl->scale >= 1.0f) {
             mscore_ovl->scale = 1.0f;
             mscore_ovl->scale_dir = mMS_SCALE_WAIT;
+#ifdef TARGET_PC
+            if (pc_acc_is_active()) {
+                pc_acc_speak_interrupt("Clear all? Yes");
+            }
+#endif
         }
     } else if (mscore_ovl->scale_dir == mMS_SCALE_OUT) {
         mscore_ovl->scale -= 0.25f;
@@ -305,11 +353,17 @@ static void mMS_move_Obey(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
             if (mscore_ovl->menu_idx == 0) {
                 mscore_ovl->menu_idx = 1;
                 sAdo_SysTrgStart(NA_SE_CURSOL);
+#ifdef TARGET_PC
+                if (pc_acc_is_active()) pc_acc_speak_interrupt("No");
+#endif
             }
         } else if ((trigger & BUTTON_CUP) != 0) {
             if (mscore_ovl->menu_idx == 1) {
                 mscore_ovl->menu_idx = 0;
                 sAdo_SysTrgStart(NA_SE_CURSOL);
+#ifdef TARGET_PC
+                if (pc_acc_is_active()) pc_acc_speak_interrupt("Yes");
+#endif
             }
         }
     }
@@ -584,6 +638,11 @@ static void mMS_mscore_ovl_init(Submenu* submenu) {
     mscore_ovl->wait_timer = 10;
     mscore_ovl->cursor_idx = -1;
     mMld_GetMelody(mscore_ovl->melody);
+#ifdef TARGET_PC
+    if (pc_acc_is_active()) {
+        pc_acc_speak_interrupt("Town Tune Editor. 16 slots. Up and Down to change note, Left and Right to move. X to play, Start to save.");
+    }
+#endif
 }
 
 extern void mMS_mscore_ovl_construct(Submenu* submenu) {

@@ -1,0 +1,283 @@
+================================================================================
+TREE & BALLOON SYSTEM RESEARCH — Animal Crossing GCN
+================================================================================
+
+================================================================================
+PART 1: TREE SYSTEM
+================================================================================
+
+1. TREE TYPES & IDENTIFICATION
+-------------------------------
+
+Trees are stored as mActor_name_t item IDs in the FG tile grid. The item ID
+itself fully determines the tree type — no separate type flags needed.
+
+Types:
+  Oak:        TREE (fully grown), growth stages TREE_S0 -> TREE_S1 -> TREE_S2 -> TREE
+  Cedar:      CEDAR_TREE_S0 -> CEDAR_TREE
+  Fruit:      TREE_APPLE_FRUIT, TREE_ORANGE_FRUIT, TREE_PEACH_FRUIT,
+              TREE_PEAR_FRUIT, TREE_CHERRY_FRUIT
+              Each has _NOFRUIT_0, _NOFRUIT_1, _NOFRUIT_2 states after harvest
+  Coconut:    TREE_PALM_FRUIT / TREE_PALM_NOFRUIT
+  Money:      TREE_100BELLS, TREE_1000BELLS, TREE_10000BELLS, TREE_30000BELLS
+  Gold:       GOLD_TREE / GOLD_TREE_SHOVEL (fully grown with golden shovel)
+  Special:
+    Hidden bells:     TREE_BELLS, CEDAR_TREE_BELLS, GOLD_TREE_BELLS (1 item each)
+    Hidden furniture: TREE_FTR, CEDAR_TREE_FTR, GOLD_TREE_FTR (random furniture)
+    Wasp nest:        TREE_BEES, CEDAR_TREE_BEES, GOLD_TREE_BEES
+    Present:          TREE_PRESENT
+    Christmas:        TREE_LIGHTS, CEDAR_TREE_LIGHTS
+
+  Shakeable check: IS_ITEM_SHAKEABLE_TREE(item) — medium, large, or fully grown only
+
+Source: include/m_name_table.h lines 563-832
+
+
+2. TREE STATE & CONTENTS
+-------------------------
+
+Daily shake counter:
+  Stored per-unit in bg_item_common_c->block_info_table.info_tbl[block].info[unit]
+  This is a u8 per unit tile, decremented each shake.
+  Function: BIT_actor_tree_cutcount_check() — bg_item_common.c_inc lines 1063-1090
+    - Finds block containing the unit
+    - Reads counter at block's unit position
+    - If counter > 0: decrements and returns value (items remain)
+    - If counter == 0: returns 0 (fully harvested for today)
+
+Fruit/item count per tree (hardcoded):
+  Fruit trees (apple/orange/peach/pear/cherry): 3 items
+  Coconut trees: 2 items
+  Money trees: 3 items
+  Bell trees: 1 item
+  Furniture trees: 1 item
+  Bee/wasp trees: 1 item (honeycomb)
+
+Tree state transitions after shake (via mFI_SetFG_common):
+  Fruit tree with fruit -> TREE_*_NOFRUIT_0 variant
+  Money tree -> plain TREE (becomes normal oak)
+  Bell/furniture/bee trees -> stay the same item ID
+  Gold tree -> stays gold
+
+Source: src/bg_item/bg_item_common.c_inc lines 796-1090
+
+
+3. SHAKE & DROP SYSTEM
+-----------------------
+
+Shake sequence:
+  1. Player animation plays MPLAYER_ANIM_SHAKE1
+     (m_player_main_shake_tree.c_inc lines 1-173)
+  2. At animation frame 10.0f, Player_actor_SetEffect_Shake_tree() called (line 52)
+  3. Calls Player_actor_Set_shake_tree_table() to validate and register (line 63)
+  4. Calls item_tree_fruit_drop_proc() = bg_item_tree_fruit_drop() (line 72)
+
+Shake table (player tracks 3 concurrent shakes):
+  shake_tree_timer[3]: 84.0f frames for large shake, 16.0f for small
+  shake_tree_ut_x[3], shake_tree_ut_z[3]: which tree units are shaking
+  shake_tree_little[3]: small vs large shake flag
+  Source: m_player_common.c_inc lines 6253-6256
+
+Drop determination — drop_fruit() function:
+  Uses fg_ytable[] lookup (bg_item_common.c_inc lines 998-1020)
+  Format: { src_tree_item, dropped_item, new_tree_item, drop_count }
+  Examples:
+    { TREE_APPLE_FRUIT,  ITM_FOOD_APPLE,   TREE_APPLE_NOFRUIT_0,  3 }
+    { TREE_FTR,          FTR_START(...),    TREE,                  1 }
+    { TREE_BEES,         HONEYCOMB,         TREE,                  1 }
+    { TREE_PALM_FRUIT,   ITM_FOOD_COCONUT,  TREE_PALM_NOFRUIT_0,  2 }
+
+  Furniture trees: randomly selects from Crazy Redd's list or raffle list
+    if player has goods luck (lines 1029-1038)
+  Bell trees: randomly gives ITM_MONEY_1000 if player has money luck (lines 1046-1049)
+
+Drop physics — fruit_set() function (lines 796-982):
+  Initial position: slightly above tree center
+  Velocity: calculated based on distance and target height
+  Gravity: acceleration_y = -1.2f (normal), 0.15f for furniture
+  Drop speed: 5 for ceiling, 14+i*4 for normal, 26 for furniture
+  Max concurrent drops: bIT_FRUIT_DROP_NUM = 6
+
+Wasp timer:
+  5 frames after shake before wasps spawn
+  Source: m_player_main_shake_tree.c_inc line 74
+  Timer ticks down, bee spawns and attacks when expired (lines 102-119)
+
+Stumps:
+  Separate item IDs after chopping (not a flag on the tree)
+
+
+4. PROXIMITY & INTERACTION
+---------------------------
+
+Detection:
+  Player_actor_CheckController_forShake_tree() — checks A button near shakeable tree
+  Player_actor_check_fg_little_shake_tree() — scans adjacent units for trees
+  Trees must pass IS_ITEM_SHAKEABLE_TREE() (medium, large, or fully grown only)
+
+Tree lookup from position:
+  mFI_Wpos2UtNum(): world position -> unit grid coordinates
+  mFI_GetUnitFG(): retrieves item at a given unit position
+  Proximity: scans up to 1 unit away diagonally from player
+
+Source: m_player_common.c_inc lines 6323-6406
+
+
+================================================================================
+PART 2: BALLOON SYSTEM
+================================================================================
+
+5. BALLOON SPAWNING
+---------------------
+
+Files:
+  Header:  include/ac_fuusen.h, include/m_fuusen.h
+  Source:  src/actor/ac_fuusen.c (596 lines), src/game/m_fuusen.c (94 lines)
+
+Spawn frequency:
+  Checks every 5 minutes (at minutes ending in :03 of each in-game hour)
+  Source: m_fuusen.c line 76: if ((min % 5) == 3 && min != Common_Get(balloon_last_spawn_min))
+  Only one balloon at a time
+
+Conditions:
+  Must be in main town field (mFI_FIELDTYPE_FG)
+  Not during intro sequence
+  State must be Balloon_STATE_DEAD or Balloon_STATE_CHK_SPAWN
+
+Spawn probability:
+  Base chance: 5% (0.05f)
+  Per-check increment: 0.025f + goods_power_mod * 0.025f + field_rank_mod * 0.025f + RANDOM_F(0.025f)
+    = range 0.025 to 0.1 per check
+  field_rank_mod = mFAs_GetFieldRank() / mFAs_FIELDRANK_SIX (0.0 to 1.0)
+  goods_power_mod = mPr_GetGoodsPower() / mPr_GOODS_POWER_MAX (max 50)
+  Look-up penalty: if balloon escaped after being stuck, +0.25f bonus
+  Post-spawn reset: (1.0f - current_percent) * 0.1f
+
+8 spawn edges (based on wind direction):
+  Corner and edge acres, positions in world coordinates:
+    { 1600.0f, 100.0f,  500.0f }   Q-2
+    {  500.0f, 100.0f,  500.0f }   Q-0
+    {  500.0f, 100.0f, 1600.0f }   B-0
+    {  500.0f, 100.0f, 4620.0f }   G-0
+    { 1600.0f, 100.0f, 4620.0f }   G-2
+    { 3980.0f, 100.0f, 4620.0f }   F-6
+    { 3980.0f, 100.0f, 1600.0f }   B-6
+    { 3980.0f, 100.0f,  500.0f }   Q-6
+  Random offset applied (up to +-1280 units on one axis)
+
+State machine (Common_Data):
+  Balloon_STATE_DEAD          — doesn't exist
+  Balloon_STATE_CHK_SPAWN     — checking if should spawn
+  Balloon_STATE_SPAWNED       — currently exists
+  Balloon_STATE_LOOK_UP       — escaped after tree collision
+  Balloon_STATE_PENDING_SPAWN — failed to spawn, retry
+
+Common_Data fields:
+  balloon_state             (s16, offset 0x028894)
+  balloon_last_spawn_min    (s16, offset 0x028896)
+  balloon_spawn_percent     (f32, offset 0x028898)
+
+
+6. BALLOON MOVEMENT & PHYSICS
+-------------------------------
+
+Speed:
+  wind_power * 0.5f + 1.0f
+  wind_power from mEnv_GetWindPowerF(), range 0.0-2.0f
+
+Direction:
+  Follows wind angle from mEnv_GetWindAngleS() (16-bit short, degrees)
+
+Vertical movement (floating wobble):
+  fuwafuwa_cycle increments by 250 each frame
+  Height oscillates: balloon_y + sin_s(fuwafuwa_cycle) * 10.0f (+-10 unit sine wave)
+  Smooth interpolation using add_calc() with dampening
+
+Altitude:
+  Base: ground level + y_offset (starts 110.0f above ground)
+  Near walls: y_offset += 0.05f per frame (climbs)
+  Open air: y_offset -= 0.005f per frame (slow descent)
+  Maximum: 300.0f offset cap
+
+Ground collision:
+  Uses mCoBG_BgCheckControll() with radius 12.0f
+  Checks for wall hits in collision result
+
+
+7. TREE COLLISION (BALLOON)
+-----------------------------
+
+Phase 1 — Direct collision (ac_fuusen.c lines 140-194):
+  Checks current tile via mFI_GetUnitFG() for 21 tree variations
+  Converts to unit center position via mFI_Wpos2UtCenterWpos()
+  Cedar tree adjustments: Y += 100, Z += 20
+  Other tree adjustments: X -= 2.5, Y += 97.5, Z += 7.5
+  Cedar collision radius: dx^2 + dz^2 < 484 AND dy^2 < 225 (22 units)
+  Other tree radius: dx^2 + dz^2 < 225 AND dy^2 < 225 (15 units)
+  On collision -> aFSN_ACTION_WOOD_STOP (balloon sticks to tree)
+
+Phase 2 — Ahead prediction (lines 196-244):
+  Only runs if NOT already stuck
+  Checks 80 units ahead in 3 directions: straight, +-2500 degrees offset
+  If tree detected, sets wind_change_flag and adjusts angle toward tree
+
+Stuck on tree state (aFSN_ACTION_WOOD_STOP, lines 247-305):
+  Velocity set to 0.0f
+  escape_timer = 18000 + 1554 frames (~327 seconds / 5.5 minutes)
+  Balloon magnetically pulls toward tree center
+  Tree shake detection:
+    mPlib_Check_tree_shaken_big() — hard shake, balloon drops immediately
+    mPlib_Check_tree_shaken_little() — light shake, balloon swings but stays
+  After escape_timer expires -> ESCAPE state
+
+Sound trigger:
+  sAdo_OngenTrgStart(0x402, &position) fires when stuck on tree (line 418)
+
+
+8. BALLOON ESCAPE & PRESENT DROP
+-----------------------------------
+
+Escape triggers:
+  1. Time-based: escape_timer expires (1554 frames = ~26 seconds in escape state)
+  2. Map boundary: X <= 660 OR X >= 3820 OR Z <= 660 OR Z >= 4460
+  3. Train station area: X between 2040-2440, Z between 800-960
+  4. Tree escape: escape_timer expires while stuck
+
+Escape actions (aFSN_escape, lines 307-329):
+  Transitions to ESCAPE state
+  Velocity Y = 5.0f (upward), gravity = 0.5f
+  Present drop: fruit_set_proc(ITM_PRESENT, ut_x, ut_z, 1, 1)
+  Present is ITM_PRESENT wrapper — contents determined when player picks it up
+  Balloon continues upward until Y > ground_level + 500, then Actor_delete()
+
+Look-up flag (line 437):
+  Set when balloon escapes within 1 acre of player position
+
+
+9. HOOKABLE EVENTS FOR ACCESSIBILITY
+---------------------------------------
+
+Balloon hooks:
+  1. SPAWN:       Balloon_make_fuusen() in m_fuusen.c line 18-28
+  2. STUCK:       ac_fuusen.c lines 188-193 (collision detected)
+                  Sound 0x402 already fires here
+  3. ESCAPE/DROP: ac_fuusen.c line 254 + 320
+  4. DELETED:     ac_fuusen.c line 327 (Actor_delete)
+  5. LOOK-UP:     ac_fuusen.c line 437 (within 1 acre of player)
+
+Tree shake hooks:
+  1. SHAKE START: m_player_main_shake_tree.c_inc line 52
+                  Player_actor_SetEffect_Shake_tree()
+  2. FRUIT DROP:  bg_item_common.c_inc bg_item_tree_fruit_drop()
+                  Called with tree item ID and unit position
+  3. WASP SPAWN:  m_player_main_shake_tree.c_inc line 74 (5 frame timer)
+
+Tree scan (for nav):
+  mFI_GetUnitFG(ut_x, ut_z) — read tree item at any tile
+  IS_ITEM_SHAKEABLE_TREE(item) — check if shakeable
+  mFI_Wpos2UtNum() — world position to tile coordinates
+
+
+================================================================================
+END OF RESEARCH
+================================================================================

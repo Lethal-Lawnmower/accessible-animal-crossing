@@ -1,5 +1,9 @@
 #include "m_map_ovl.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 #include "audio.h"
 #include "m_random_field.h"
 #include "m_field_info.h"
@@ -888,6 +892,12 @@ static void mMP_set_init_data(mMP_Ovl_c* map_ovl, mSM_MenuInfo_c* menu_info) {
     mMP_set_field_data(map_ovl);
 
     map_ovl->land_name_str_len = mMl_strlen(Save_Get(land_info.name), LAND_NAME_SIZE, CHAR_SPACE);
+
+#ifdef TARGET_PC
+    pc_acc_map_opened(map_ovl->sel_bx, map_ovl->sel_bz,
+                      map_ovl->player_bx, map_ovl->player_bz,
+                      Save_Get(land_info.name), map_ovl->land_name_str_len);
+#endif
 }
 
 static void mMP_move_Move(Submenu* submenu, mSM_MenuInfo_c* menu) {
@@ -932,6 +942,23 @@ static void mMP_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu) {
     if (cursor_moved == TRUE) {
         menu->proc_status = 2; // TODO: enum & name
         sAdo_SysTrgStart(NA_SE_CURSOL);
+
+#ifdef TARGET_PC
+        {
+            mMP_LabelInfo_c* li = &map_ovl->label_info[map_ovl->sel_bz][map_ovl->sel_bx];
+            const u8* names[mMP_RESIDENTS_PER_BLOCK_MAX];
+            int count = 0;
+            for (int i = 0; i < mMP_RESIDENTS_PER_BLOCK_MAX && i < li->label_cnt; i++) {
+                if (li->residents[i]) {
+                    names[count++] = li->residents[i]->name;
+                }
+            }
+            pc_acc_map_cursor_moved(map_ovl->sel_bx, map_ovl->sel_bz,
+                                    map_ovl->player_bx, map_ovl->player_bz,
+                                    li->label_no, li->label_cnt,
+                                    names, count);
+        }
+#endif
     }
 
     map_ovl->cursor_frame++;

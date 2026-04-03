@@ -1,5 +1,6 @@
 /* pc_vi.c - video interface → SDL window swap + frame pacing */
 #include "pc_platform.h"
+#include "pc_accessibility.h"
 
 #define VI_TVMODE_NTSC_INT    0
 #define VI_TVMODE_NTSC_DS     1
@@ -83,7 +84,11 @@ void VIWaitForRetrace(void) {
             double fps = (double)fps_count / secs;
             char title[64];
             snprintf(title, sizeof(title), "Animal Crossing - %.1f FPS", fps);
-            SDL_SetWindowTitle(g_pc_window, title);
+            /* Don't update window title when a screen reader is active —
+             * NVDA reads every title change, spamming FPS announcements. */
+            if (!pc_acc_is_active()) {
+                SDL_SetWindowTitle(g_pc_window, title);
+            }
             fps_start = now;
             fps_count = 0;
         }

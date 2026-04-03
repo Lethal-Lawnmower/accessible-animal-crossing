@@ -26,6 +26,9 @@
 #include "main.h"
 #include <stdio.h>
 #endif
+#ifdef TARGET_PC
+#include "pc_accessibility.h"
+#endif
 
 #define G_CC_TITLE PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, PRIMITIVE, 0, TEXEL0, 0
 #define G_CC_TM 0, 0, 0, PRIMITIVE, 0, 0, 0, TEXEL0
@@ -327,6 +330,62 @@ static void aAL_fade_out_start_wait_init(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
 }
 
 #ifdef PC_ENHANCEMENTS
+
+/* ---- TTS helpers for menu accessibility ---- */
+#ifdef TARGET_PC
+static int s_menu_prev_sel = -1;
+static int s_menu_prev_options_open = -1;
+static int s_menu_prev_options_sel = -1;
+/* Snapshot settings to detect value changes */
+static int s_menu_prev_res_w = -1;
+static int s_menu_prev_fs = -1;
+static int s_menu_prev_vsync = -1;
+static int s_menu_prev_msaa = -1;
+static int s_menu_prev_tex = -1;
+
+static const char* aAL_options_label(int sel) {
+  switch (sel) {
+    case 0: return "Resolution";
+    case 1: return "Display";
+    case 2: return "VSync";
+    case 3: return "MSAA";
+    case 4: return "Textures";
+    default: return "";
+  }
+}
+
+static void aAL_speak_option_value(int sel) {
+  char buf[64];
+  switch (sel) {
+    case 0:
+      snprintf(buf, sizeof(buf), "%s, %dx%d", aAL_options_label(0),
+               g_pc_settings.window_width, g_pc_settings.window_height);
+      break;
+    case 1:
+      snprintf(buf, sizeof(buf), "%s, %s", aAL_options_label(1),
+               g_pc_settings.fullscreen == 0 ? "Windowed" :
+               g_pc_settings.fullscreen == 1 ? "Fullscreen" : "Borderless");
+      break;
+    case 2:
+      snprintf(buf, sizeof(buf), "%s, %s", aAL_options_label(2),
+               g_pc_settings.vsync ? "On" : "Off");
+      break;
+    case 3:
+      if (g_pc_settings.msaa > 0)
+        snprintf(buf, sizeof(buf), "%s, %dx", aAL_options_label(3), g_pc_settings.msaa);
+      else
+        snprintf(buf, sizeof(buf), "%s, Off", aAL_options_label(3));
+      break;
+    case 4:
+      snprintf(buf, sizeof(buf), "%s, %s", aAL_options_label(4),
+               g_pc_settings.preload_textures == 0 ? "On Demand" :
+               g_pc_settings.preload_textures == 1 ? "Preload" : "Preload and Cache");
+      break;
+  }
+  pc_acc_speak_interrupt(buf);
+}
+#endif /* TARGET_PC */
+
 static void aAL_pc_game_start_wait(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
   GAME_PLAY* play = (GAME_PLAY*)game;
   u16 on_btn = gamePT->pads[PAD0].on.button;
@@ -349,12 +408,32 @@ static void aAL_pc_game_start_wait(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
     s8 stick_x = gamePT->pads[PAD0].now.stick_x;
     int changed = 0;
 
+#ifdef TARGET_PC
+    /* Announce Options menu opening */
+    if (s_menu_prev_options_open != 1) {
+      if (pc_acc_is_active()) {
+        aAL_speak_option_value(actor->pc_options_sel);
+      }
+      s_menu_prev_options_open = 1;
+      s_menu_prev_options_sel = actor->pc_options_sel;
+      s_menu_prev_res_w = g_pc_settings.window_width;
+      s_menu_prev_fs = g_pc_settings.fullscreen;
+      s_menu_prev_vsync = g_pc_settings.vsync;
+      s_menu_prev_msaa = g_pc_settings.msaa;
+      s_menu_prev_tex = g_pc_settings.preload_textures;
+    }
+#endif
+
     /* START to save, apply, and close */
     if (on_btn & BUTTON_START) {
       pc_settings_save();
       pc_settings_apply();
       actor->pc_options_open = 0;
       actor->pc_cursor_cooldown = 10;
+#ifdef TARGET_PC
+      if (pc_acc_is_active()) pc_acc_speak_interrupt("Options saved");
+      s_menu_prev_options_open = 0;
+#endif
       return;
     }
 
@@ -363,6 +442,10 @@ static void aAL_pc_game_start_wait(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
       pc_settings_load();
       actor->pc_options_open = 0;
       actor->pc_cursor_cooldown = 10;
+#ifdef TARGET_PC
+      if (pc_acc_is_active()) pc_acc_speak_interrupt("Options cancelled");
+      s_menu_prev_options_open = 0;
+#endif
       return;
     }
 
@@ -428,11 +511,28 @@ static void aAL_pc_game_start_wait(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
       }
       } /* end resolution presets block */
     }
+
+#ifdef TARGET_PC
+    /* Announce option cursor movement or value change */
+    if (pc_acc_is_active()) {
+      if (actor->pc_options_sel != s_menu_prev_options_sel) {
+        aAL_speak_option_value(actor->pc_options_sel);
+        s_menu_prev_options_sel = actor->pc_options_sel;
+      } else if (changed) {
+        aAL_speak_option_value(actor->pc_options_sel);
+      }
+      s_menu_prev_res_w = g_pc_settings.window_width;
+      s_menu_prev_fs = g_pc_settings.fullscreen;
+      s_menu_prev_vsync = g_pc_settings.vsync;
+      s_menu_prev_msaa = g_pc_settings.msaa;
+      s_menu_prev_tex = g_pc_settings.preload_textures;
+    }
+#endif
     (void)changed;
     return;
   }
 
-  /* Main menu navigation */
+  /* Main menu navigation (2 items: Start Game, Options) */
   if (actor->pc_cursor_cooldown == 0) {
     if (stick_y > 30 || (on_btn & BUTTON_DUP)) {
       if (actor->pc_menu_sel > 0) {
@@ -447,6 +547,24 @@ static void aAL_pc_game_start_wait(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
     }
   }
 
+#ifdef TARGET_PC
+  {
+    static const char* menu_items[] = { "Start Game", "Options" };
+    /* Announce main menu cursor changes */
+    if (pc_acc_is_active()) {
+      if (s_menu_prev_options_open != 0) {
+        /* Just returned from a submenu or first time — announce current item */
+        pc_acc_speak_interrupt(menu_items[actor->pc_menu_sel]);
+        s_menu_prev_sel = actor->pc_menu_sel;
+        s_menu_prev_options_open = 0;
+      } else if (actor->pc_menu_sel != s_menu_prev_sel) {
+        pc_acc_speak_interrupt(menu_items[actor->pc_menu_sel]);
+        s_menu_prev_sel = actor->pc_menu_sel;
+      }
+    }
+  }
+#endif
+
   /* Select */
   if (on_btn & (BUTTON_A | BUTTON_START)) {
     if (actor->pc_menu_sel == 0) {
@@ -456,7 +574,7 @@ static void aAL_pc_game_start_wait(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
           mTD_tdemo_button_ok_check()) {
         aAL_setupAction(actor, game, aAL_ACTION_FADE_OUT_START);
       }
-    } else {
+    } else if (actor->pc_menu_sel == 1) {
       /* Options */
       actor->pc_options_open = 1;
       actor->pc_cursor_cooldown = 10;
@@ -970,40 +1088,36 @@ static void aAL_pc_menu_draw(ANIMAL_LOGO_ACTOR* actor, GAME* game) {
   static u8 str_options[] = { 'O', 'p', 't', 'i', 'o', 'n', 's' };
   static u8 str_arrow[] = { '>' };
 
-  f32 start_w = (f32)mFont_GetStringWidth(str_start, sizeof(str_start), TRUE);
-  f32 opt_w = (f32)mFont_GetStringWidth(str_options, sizeof(str_options), TRUE);
-  f32 start_x = (SCREEN_WIDTH_F - start_w) * 0.5f;
-  f32 opt_x = (SCREEN_WIDTH_F - opt_w) * 0.5f;
-  f32 y0 = 135.0f;
-  f32 y1 = 153.0f;
+  /* 2 menu items with Y positions */
+  static const struct { u8* str; int len; } items[] = {
+    { str_start,   sizeof(str_start) },
+    { str_options,  sizeof(str_options) },
+  };
+  f32 y_base = 125.0f;
+  f32 line_spacing = 16.0f;
   int sel = actor->pc_menu_sel;
 
-  /* "Start Game" */
-  mFont_SetLineStrings(game, str_start, sizeof(str_start), start_x, y0,
-    sel == 0 ? sel_r[td] : dim_r[td],
-    sel == 0 ? sel_g[td] : dim_g[td],
-    sel == 0 ? sel_b[td] : dim_b[td],
-    sel == 0 ? 255 : 160,
-    FALSE, TRUE, 1.0f, 1.0f, mFont_MODE_FONT);
+  for (int i = 0; i < 2; i++) {
+    f32 w = (f32)mFont_GetStringWidth(items[i].str, items[i].len, TRUE);
+    f32 x = (SCREEN_WIDTH_F - w) * 0.5f;
+    f32 y = y_base + line_spacing * i;
+    int is_sel = (sel == i);
 
-  /* "Options" */
-  mFont_SetLineStrings(game, str_options, sizeof(str_options), opt_x, y1,
-    sel == 1 ? sel_r[td] : dim_r[td],
-    sel == 1 ? sel_g[td] : dim_g[td],
-    sel == 1 ? sel_b[td] : dim_b[td],
-    sel == 1 ? 255 : 160,
-    FALSE, TRUE, 1.0f, 1.0f, mFont_MODE_FONT);
-
-  /* Cursor ">" */
-  {
-    f32 arrow_x = (sel == 0 ? start_x : opt_x) - 14.0f;
-    f32 arrow_y = sel == 0 ? y0 : y1;
-    mFont_SetLineStrings(game, str_arrow, 1, arrow_x, arrow_y,
-      sel_r[td], sel_g[td], sel_b[td], 255,
+    mFont_SetLineStrings(game, items[i].str, items[i].len, x, y,
+      is_sel ? sel_r[td] : dim_r[td],
+      is_sel ? sel_g[td] : dim_g[td],
+      is_sel ? sel_b[td] : dim_b[td],
+      is_sel ? 255 : 160,
       FALSE, TRUE, 1.0f, 1.0f, mFont_MODE_FONT);
+
+    if (is_sel) {
+      mFont_SetLineStrings(game, str_arrow, 1, x - 14.0f, y,
+        sel_r[td], sel_g[td], sel_b[td], 255,
+        FALSE, TRUE, 1.0f, 1.0f, mFont_MODE_FONT);
+    }
   }
 
-  /* Options sub-menu overlay */
+  /* Sub-menu overlays */
   if (actor->pc_options_open) {
     aAL_pc_options_draw(actor, game);
   }

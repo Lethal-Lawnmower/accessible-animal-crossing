@@ -64,6 +64,9 @@ static void Player_actor_SetEffect_Shake_tree(ACTOR* actorx, GAME* game) {
                 Player_actor_sound_tree_yurasu(target_pos_p);
                 Player_actor_set_viblation_Shake_tree();
 
+                /* Accessibility: announce tree shake */
+                pc_acc_tree_shaken(item, ut_x, ut_z);
+
                 if (Common_Get(clip).bg_item_clip != NULL &&
                     Common_Get(clip).bg_item_clip->item_tree_fruit_drop_proc != NULL) {
                     if (!IS_ITEM_BEE_TREE(item)) {

@@ -2,6 +2,9 @@
 #include "pc_platform.h"
 #include "pc_typing.h"
 #include "pc_keybindings.h"
+#include "pc_acc_nav.h"
+#include "pc_acc_furniture.h"
+#include "pc_acc_gameplay.h"
 #include <dolphin/pad.h>
 
 /* analog stick constants */
@@ -64,11 +67,24 @@ u32 PADRead(PADStatus* status) {
         if (INPUT_PRESSED(kb->cstick_left))  cstickX -= STICK_MAGNITUDE;
         if (INPUT_PRESSED(kb->cstick_right)) cstickX += STICK_MAGNITUDE;
 
-        /* D-pad */
-        if (INPUT_PRESSED(kb->dpad_up))    buttons |= PAD_BUTTON_UP;
-        if (INPUT_PRESSED(kb->dpad_down))  buttons |= PAD_BUTTON_DOWN;
-        if (INPUT_PRESSED(kb->dpad_left))  buttons |= PAD_BUTTON_LEFT;
-        if (INPUT_PRESSED(kb->dpad_right)) buttons |= PAD_BUTTON_RIGHT;
+        /* D-pad — suppress J/K/L when accessibility nav consumes them */
+        {
+            int nav_active = pc_acc_nav_is_active();
+            int suppress_j = nav_active && kb->dpad_left  == SDL_SCANCODE_J;
+            int suppress_k = nav_active && kb->dpad_down  == SDL_SCANCODE_K;
+            int suppress_l = nav_active && kb->dpad_right == SDL_SCANCODE_L;
+
+            if (INPUT_PRESSED(kb->dpad_up))                     buttons |= PAD_BUTTON_UP;
+            if (INPUT_PRESSED(kb->dpad_down)  && !suppress_k)   buttons |= PAD_BUTTON_DOWN;
+            if (INPUT_PRESSED(kb->dpad_left)  && !suppress_j)   buttons |= PAD_BUTTON_LEFT;
+            if (INPUT_PRESSED(kb->dpad_right) && !suppress_l)   buttons |= PAD_BUTTON_RIGHT;
+        }
+
+        /* C-stick — suppress arrow keys when accessibility menus/modes consume them */
+        if (pc_acc_furniture_mode_active()) {
+            cstickX = 0;
+            cstickY = 0;
+        }
 
         #undef INPUT_PRESSED
     }
@@ -135,6 +151,20 @@ u32 PADRead(PADStatus* status) {
         if (rt > TRIGGER_THRESHOLD) buttons |= PAD_TRIGGER_R;
         status[0].triggerLeft = lt;
         status[0].triggerRight = rt;
+    }
+
+    /* Auto-catch input injection: override stick and press A when auto-approach is active */
+    {
+        s8 auto_sx, auto_sy;
+        int auto_a;
+        pc_acc_gameplay_get_auto_input(&auto_sx, &auto_sy, &auto_a);
+        if (auto_sx != 0 || auto_sy != 0) {
+            stickX = auto_sx;
+            stickY = auto_sy;
+        }
+        if (auto_a) {
+            buttons |= PAD_BUTTON_A;
+        }
     }
 
     status[0].button = buttons;

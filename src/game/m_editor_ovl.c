@@ -16,6 +16,10 @@
 #include "m_rcp.h"
 #include "m_lib.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 static u8 mED_ornament_table[] = {
     // clang-format off
     0x21, 0x3f, 0x03, 0x04, 0x05, 0x06, 0x07, 0x41,
@@ -1792,6 +1796,13 @@ static void mED_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     mED_get_col_line_width(menu_info, editor_ovl, &editor_ovl->_22, &editor_ovl->_24, &editor_ovl->_26,
                            editor_ovl->cursor_idx);
     mED_check_line_over(editor_ovl);
+
+#ifdef TARGET_PC
+    {
+        u8 grid_char = mED_get_code(editor_ovl, editor_ovl->select_col, editor_ovl->select_row);
+        pc_acc_editor_update(editor_ovl, grid_char);
+    }
+#endif
 }
 
 static void mED_move_Wait(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -2545,6 +2556,14 @@ extern void mED_editor_ovl_construct(Submenu* submenu) {
     mED_editor_ovl_set_proc(submenu);
     submenu->overlay->editor_ovl->end_code_draw = &mED_endCode_draw;
     submenu->overlay->editor_ovl->cursol_draw = &mED_cursol_draw;
+
+#ifdef TARGET_PC
+    {
+        mED_Ovl_c* ed = submenu->overlay->editor_ovl;
+        u8 grid_char = mED_get_code(ed, ed->select_col, ed->select_row);
+        pc_acc_editor_opened(ed, grid_char);
+    }
+#endif
 }
 
 extern void mED_editor_ovl_destruct(Submenu* submenu) {

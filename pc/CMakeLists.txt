@@ -282,6 +282,15 @@ set(PC_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_stubs_cpp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_assets.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_disc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_accessibility.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_msg.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_menu.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_hotkeys.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_nav.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_magnet.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_furniture.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_gameplay.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pc_acc_tree.c
 )
 
 # Rename game's main() to ac_entry() to avoid conflict with PC main() and game_main(GAME*)
@@ -401,6 +410,22 @@ if(WIN32)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${SDL2_DLL_PATH}" "${CMAKE_BINARY_DIR}/bin/"
             COMMENT "Copying SDL2.dll to bin/"
+        )
+    endif()
+endif()
+
+# Copy Tolk accessibility DLLs (32-bit) next to executable if present
+if(WIN32)
+    set(TOLK_X86_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/tolk/x86")
+    if(EXISTS "${TOLK_X86_DIR}/Tolk.dll")
+        add_custom_command(TARGET ac_pc POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${TOLK_X86_DIR}/Tolk.dll"
+                "${TOLK_X86_DIR}/nvdaControllerClient32.dll"
+                "${TOLK_X86_DIR}/SAAPI32.dll"
+                "${TOLK_X86_DIR}/dolapi32.dll"
+                "${CMAKE_BINARY_DIR}/bin/"
+            COMMENT "Copying Tolk accessibility DLLs to bin/"
         )
     endif()
 endif()

@@ -7,6 +7,10 @@
 #include "m_lib.h"
 #include "m_common_data.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
+
 static int aNSM_sack_amount[MONEY_NUM] = { 100, 1000, 10000, 30000 };
 
 static mActor_name_t aNSM_itemNo[MONEY_NUM] = { ITM_MONEY_100, ITM_MONEY_1000, ITM_MONEY_10000, ITM_MONEY_30000 };
@@ -192,6 +196,10 @@ static void mBN_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu) {
             sAdo_SysTrgStart(0x426);
         }
     }
+
+#ifdef TARGET_PC
+    pc_acc_bank_update(bank_ovl->cursol, bank_ovl->now_bell, bank_ovl->bank_bell, bank_ovl->bell);
+#endif
 }
 
 static void mBN_move_End(Submenu* submenu, mSM_MenuInfo_c* menu) {
@@ -386,6 +394,10 @@ extern void mBN_bank_ovl_construct(Submenu* submenu) {
 
     mBN_bank_ovl_init(submenu);
     mBN_bank_ovl_set_proc(submenu);
+
+#ifdef TARGET_PC
+    pc_acc_bank_opened(overlay->bank_ovl->now_bell, overlay->bank_ovl->bank_bell);
+#endif
 }
 
 extern void mBN_bank_ovl_destruct(Submenu* submenu) {

@@ -7,6 +7,9 @@
 #include "m_font.h"
 #include "m_msg.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#endif
 
 typedef void (*mChoice_MAIN_PROC)(mChoice_c*, GAME*);
 

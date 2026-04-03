@@ -1,0 +1,99 @@
+Building Entrance Research — Complete Findings
+================================================
+
+1. BUILDING ORIENTATION
+-----------------------
+All buildings face south. No exceptions in the codebase. The player always
+exits a building facing north (toward the camera). This is hardcoded per
+building type, not variable per town seed.
+
+Evidence:
+- ac_house_move.c_inc line 223: House door data uses mSc_DIRECT_NORTH as
+  the exit orientation — player faces north when exiting, confirming the
+  door is on the south face.
+- Structure actors (ac_structure.c) use fixed positions from the town
+  layout; none have rotation fields.
+
+
+2. ENTRANCE POSITIONS
+---------------------
+There are two distinct mechanisms:
+
+A. Villager Houses (NPC houses)
+   - Door FG item (DUMMY_NPC_HOUSE_###) is placed at the house's grid
+     position via mFI_SetFG_common().
+   - The actual walk-up door trigger is at house_position.z + 60.0f
+     (world coordinates). This is the interaction point where the player
+     stands when pressing A.
+   - The house center (where the FG item sits) is NOT the entrance —
+     the entrance is one tile south of center.
+
+B. Named Buildings (Nook's, Museum, Post Office, etc.)
+   - Each uses DOOR_* FG items from the NAME_TYPE_WARP range (0x4000-0x407F).
+   - These are placed at fixed positions in the acre's FG grid during
+     town generation.
+   - The door item's grid position IS the entrance position.
+   - Key door items: DOOR_SHOP0 (Nook's), DOOR_MUSEUM, DOOR_POST_OFFICE,
+     DOOR_POLICE, DOOR_TAILOR, DOOR_STATION, etc.
+
+
+3. ENTRY TRIGGER MECHANISM
+--------------------------
+From m_player_other_func.c_inc:
+
+1. The game reads player->item_in_front — the FG item one unit ahead of
+   the player in their facing direction.
+2. If the item's name type is NAME_TYPE_WARP (checked via the name table),
+   the game looks up the matching Door_data_c entry.
+3. On A-button press while facing a warp item, a scene transition is
+   initiated.
+
+The detection is ONE TILE AHEAD of the player, not at the player's current
+position. This means the "stand here to enter" position is one tile south
+of the door FG item.
+
+
+4. DOOR_DATA_C STRUCTURE
+------------------------
+typedef struct {
+    mActor_name_t door_actor_name;  // Which DOOR_* FG item triggers this
+    u8  next_scene_id;              // Scene to load (SCENE_NPC_HOUSE, SCENE_SHOP0, etc.)
+    u8  exit_orientation;           // Player facing on exit (always mSc_DIRECT_NORTH)
+    xyz_t exit_position;            // Where player spawns inside the building
+} Door_data_c;
+
+Each building type has a static Door_data_c template. For villager houses,
+this is aHUS_npc_house_door_data with spawn point {160, 0, 300} inside
+SCENE_NPC_HOUSE.
+
+
+5. IMPLICATIONS FOR NAVIGATION SYSTEM
+--------------------------------------
+Current state:
+  The nav system targets building/house center positions. For pathfinding,
+  nav_snap_to_walkable() finds the nearest walkable tile, which works but
+  routes to an arbitrary adjacent tile rather than the actual entrance.
+
+What's needed for proper entrance targeting:
+
+- Villager houses: Entrance = house_position + (0, 0, +60) in world
+  coords, or equivalently 1-2 tiles south of the house FG item in grid
+  coords.
+
+- Named buildings: Scan the acre's FG grid for DOOR_* items in the
+  0x4000-0x407F range. The entrance tile is 1 tile south of the door
+  item (since the player must face north to interact).
+
+- Detecting door items: mFI_UtNum2UtFG(ux, uz) returns the FG item at
+  any grid cell. Check if (*fg_ptr >= DOOR_START && *fg_ptr < EXIT_DOOR)
+  to identify entrance tiles.
+
+- Per-building mapping: A lookup from building type -> door actor name ->
+  FG grid search would let the nav system find the exact entrance tile
+  for any building.
+
+Simplest approach:
+  For each building nav target, scan its acre's FG grid for the
+  corresponding DOOR_* item. Target the tile one south of it. For
+  villager houses, use the known z + 60 offset directly from
+  Save_Get(animals[i]).home_info.

@@ -7,6 +7,7 @@
 #include "pc_assets.h"
 #include "pc_disc.h"
 #include "pc_typing.h"
+#include "pc_accessibility.h"
 
 /* prefer discrete GPU on laptops */
 #ifdef _WIN32
@@ -252,10 +253,7 @@ int pc_platform_poll_events(void) {
                         return 0;
                     }
                 }
-                if (event.key.keysym.sym == SDLK_F3 && !event.key.repeat) {
-                    g_pc_no_framelimit ^= 1;
-                    printf("[PC] Frame limiter %s\n", g_pc_no_framelimit ? "OFF" : "ON");
-                }
+                /* F3 reserved for accessibility (auto-catch toggle) */
                 pc_typing_handle_event(&event);
                 break;
             case SDL_TEXTINPUT:
@@ -352,6 +350,7 @@ int main(int argc, char* argv[]) {
     pc_settings_load();
     pc_keybindings_load();
     pc_platform_init();
+    pc_acc_init();
     pc_disc_init();
     pc_assets_init();
 
@@ -359,6 +358,7 @@ int main(int argc, char* argv[]) {
     boot_main(argc, (const char**)argv); /* full init → HotStartEntry → game loop */
 
     pc_disc_shutdown();
+    pc_acc_shutdown();
     pc_platform_shutdown();
     return 0;
 }

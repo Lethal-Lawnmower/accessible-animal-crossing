@@ -1,5 +1,10 @@
 #include "m_address_ovl.h"
 
+#ifdef TARGET_PC
+#include "pc_acc_menu.h"
+#include "pc_accessibility.h"
+#endif
+
 #include "m_common_data.h"
 #include "m_board_ovl.h"
 #include "m_editor_ovl.h"
@@ -143,9 +148,32 @@ static void mAD_move_between(Submenu* submenu, int add) {
     }
 }
 
+#ifdef TARGET_PC
+static Mail_nm_c* mAD_get_selected_name(mAD_Ovl_c* adrs_ovl) {
+    if (adrs_ovl->curIdx == mAD_PAGE_PLAYER) {
+        return &adrs_ovl->player_mail_name[adrs_ovl->selected_entry];
+    } else if (adrs_ovl->curIdx == mAD_PAGE_NPC1) {
+        return &adrs_ovl->animal_mail_name[mAD_PAGE_MAX_ENTRIES + adrs_ovl->selected_entry];
+    } else {
+        return &adrs_ovl->animal_mail_name[adrs_ovl->selected_entry];
+    }
+}
+
+static void mAD_acc_speak_selected(mAD_Ovl_c* adrs_ovl) {
+    Mail_nm_c* name_p = mAD_get_selected_name(adrs_ovl);
+    pc_acc_address_selection(name_p->personalID.player_name, PLAYER_NAME_LEN,
+                            adrs_ovl->selected_entry,
+                            adrs_ovl->page_entry_count[adrs_ovl->curIdx],
+                            adrs_ovl->curIdx);
+}
+#endif
+
 static void mAD_move_cursol(Submenu* submenu) {
     mAD_Ovl_c* adrs_ovl = submenu->overlay->address_ovl;
     u32 trigger = submenu->overlay->menu_control.trigger;
+#ifdef TARGET_PC
+    u8 old_entry = adrs_ovl->selected_entry;
+#endif
 
     if ((trigger & BUTTON_CLEFT)) {
         mAD_move_between(submenu, -1);
@@ -166,6 +194,12 @@ static void mAD_move_cursol(Submenu* submenu) {
     } else if ((trigger & BUTTON_CRIGHT)) {
         mAD_move_between(submenu, 1);
     }
+
+#ifdef TARGET_PC
+    if (adrs_ovl->selected_entry != old_entry) {
+        mAD_acc_speak_selected(adrs_ovl);
+    }
+#endif
 }
 
 static void mAD_make_player_address(mAD_Ovl_c* adrs_ovl) {
@@ -243,6 +277,9 @@ static void mAD_start_proc(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
         sAdo_SysTrgStart(NA_SE_MENU_EXIT);
         mAD_pile_init(adrs_ovl, adrs_ovl->pile, adrs_ovl->curIdx);
         adrs_ovl->selected_entry = 0;
+#ifdef TARGET_PC
+        mAD_acc_speak_selected(adrs_ovl);
+#endif
     }
 }
 
@@ -331,6 +368,9 @@ static void mAD_turn_page_proc(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
 
             mAD_pile_init(adrs_ovl, adrs_ovl->pile, adrs_ovl->curIdx);
             adrs_ovl->pos_x *= -1.0f;
+#ifdef TARGET_PC
+            mAD_acc_speak_selected(adrs_ovl);
+#endif
             return;
         }
     }
@@ -745,6 +785,16 @@ extern void mAD_address_ovl_construct(Submenu* submenu) {
     if (flag) {
         mAD_address_draw_init(submenu);
     }
+
+#ifdef TARGET_PC
+    {
+        mAD_Ovl_c* adrs_ovl = ovl->address_ovl;
+        if (adrs_ovl->page_count > 0) {
+            pc_acc_speak_interrupt("Choose an addressee");
+            mAD_acc_speak_selected(adrs_ovl);
+        }
+    }
+#endif
 }
 
 extern void mAD_address_ovl_destruct(Submenu* submenu) {

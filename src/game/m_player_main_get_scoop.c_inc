@@ -50,6 +50,11 @@ static void Player_actor_setup_main_Get_scoop(ACTOR* actor, GAME* game) {
     } else {
         main_scoop->success_flag = FALSE;
     }
+#ifdef TARGET_PC
+    if (item != EMPTY_NO) {
+        pc_acc_dig_unearthed(item);
+    }
+#endif
     Player_actor_InitAnimation_Base2(actor, game, mPlayer_ANIM_GET_D1, mPlayer_ANIM_GET_D1, 1.0f, 1.0f, 0.5f, -5.0f, 0,
                                      0);
     Player_actor_setup_main_Base(actor, game);
