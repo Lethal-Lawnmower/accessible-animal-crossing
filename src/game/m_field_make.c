@@ -1394,6 +1394,13 @@ static void mFM_SetBlockKind(u8* type_p, int* kind_p, mFM_combination_c* combi_p
 
 extern void mFM_SetBlockKindLoadCombi() {
     mFM_SetBlockKind(g_block_type_p, g_block_kind_p, Save_Get(combi_table[0]), data_combi_table, BLOCK_TOTAL_NUM);
+
+#ifdef TARGET_PC
+    {
+        extern void pc_acc_nav_build_obstacle_grid(void);
+        pc_acc_nav_build_obstacle_grid();
+    }
+#endif
 }
 
 static void mFM_SetIslandFg(mFM_combo_info_c* combi_info_p, mFM_fg_data_c** sorted_fg_data, int* island_x_blocks) {
@@ -1539,6 +1546,14 @@ extern void mFM_InitFgCombiSaveData(GAME* game) {
         mFI_GetIslandBlockNumX(island_x_blocks);
         mFM_SetIslandFg(combo_info_p, sorted_fg_data_list, island_x_blocks);
     }
+
+#ifdef TARGET_PC
+    /* Dump complete FG grid to town generation debug log */
+    {
+        extern void tglog_dump_fg_after_copy(void);
+        tglog_dump_fg_after_copy();
+    }
+#endif
 
 // Aus version added NULL checks
 #if VERSION >= VER_GAFU01_00

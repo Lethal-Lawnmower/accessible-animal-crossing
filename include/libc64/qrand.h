@@ -7,5 +7,6 @@ u32 qrand(void);
 void sqrand(u32);
 f32 fqrand(void);
 f32 fqrand2(void);
+u32 qrand_get_seed(void);
 
 #endif

@@ -26,13 +26,16 @@
 #include "m_item_name.h"
 #include "m_scene_table.h"
 #include "m_field_info.h"
+#include "m_field_make.h"
 #include "m_collision_bg.h"
 #include "m_common_data.h"
 #include "m_font.h"
 #include "m_house.h"
 #include "m_private.h"
 #include "m_random_field.h"
+#include "m_random_field_h.h"
 #include "m_personal_id.h"
+#include "m_shop.h"
 #include "game.h"
 
 #include "pc_keybindings.h"
@@ -98,11 +101,116 @@ static u8 s_prev_l = 0;
 static u8 s_prev_j = 0;
 static u8 s_prev_k = 0;
 
+/* Path segment type (used by both route tracking and pathfinding) */
+typedef struct {
+    int dir;    /* 0-7, index into s_dir_names8 */
+    int count;  /* number of tiles in this direction */
+} PathSeg;
+
+#define MAX_PATH_SEGS 64
+
+/* 4-direction neighbor offsets (cardinal only) */
+static const int s_dx8[] = { 0,  1,  0, -1 };
+static const int s_dz8[] = { -1,  0,  1,  0 };
+static const f32  s_cost8[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+#define NAV_DIR_COUNT 4
+
+/* Direction name for each of the 4 neighbors */
+static const char* s_dir_names8[] = {
+    "north", "east", "south", "west"
+};
+
+/* Grid dimensions: 7 blocks * 16 tiles = 112 wide, 10 * 16 = 160 tall */
+#define NAV_GRID_W (BLOCK_X_NUM * UT_X_NUM)
+#define NAV_GRID_H (BLOCK_Z_NUM * UT_Z_NUM)
+#define NAV_GRID_SIZE (NAV_GRID_W * NAV_GRID_H)
+#define NAV_IDX(x, z) ((z) * NAV_GRID_W + (x))
+
+/* Static obstacle grid — built once at field init from save data.
+ * Values encode the obstacle type for debug output:
+ * 0=walkable, 'T'=tree, 'F'=fence, 'H'=house, 'S'=structure, 'E'=elevation,
+ * 'W'=water/cliff(BG), 'X'=other FG blocker */
+static u8 s_obstacle[NAV_GRID_SIZE];
+static int s_obstacle_ready = 0;
+
+/* Active route progress tracking */
+static PathSeg s_route_segs[MAX_PATH_SEGS];
+static int     s_route_seg_count = 0;   /* total segments in active route */
+static int     s_route_seg_idx   = 0;   /* current segment being walked */
+static int     s_route_tiles_done = 0;  /* tiles completed within current segment */
+static int     s_route_active    = 0;   /* 1 if route is in progress */
+static int     s_route_tile_x   = -1;   /* last tile when route was set/updated */
+static int     s_route_tile_z   = -1;
+static int     s_route_goal_x   = -1;   /* goal tile for recalculation */
+static int     s_route_goal_z   = -1;
+static char    s_route_target[64] = ""; /* name of route target */
+
+static void nav_clear_route(void) {
+    s_route_active = 0;
+    s_route_seg_count = 0;
+    s_route_seg_idx = 0;
+    s_route_tiles_done = 0;
+    s_route_tile_x = -1;
+    s_route_tile_z = -1;
+    s_route_goal_x = -1;
+    s_route_goal_z = -1;
+    s_route_target[0] = '\0';
+}
+
+/* Count total remaining tiles from current progress onward */
+static int nav_route_remaining_tiles(void) {
+    int total = 0;
+    if (!s_route_active) return 0;
+    /* Remaining in current segment */
+    total += s_route_segs[s_route_seg_idx].count - s_route_tiles_done;
+    /* All subsequent segments */
+    for (int i = s_route_seg_idx + 1; i < s_route_seg_count; i++)
+        total += s_route_segs[i].count;
+    return total;
+}
+
+/* Speak a single step status */
+static void nav_speak_current_step(void) {
+    char buf[192];
+    int remaining = nav_route_remaining_tiles();
+    PathSeg* seg = &s_route_segs[s_route_seg_idx];
+    int left_in_seg = seg->count - s_route_tiles_done;
+    snprintf(buf, sizeof(buf), "Step %d of %d: go %s %d. %d steps remaining.",
+             s_route_seg_idx + 1, s_route_seg_count,
+             s_dir_names8[seg->dir], left_in_seg, remaining);
+    pc_acc_speak_interrupt(buf);
+}
+
+/* Speak all remaining segments from current position */
+static void nav_speak_remaining_route(void) {
+    char buf[256];
+    int bi = 0;
+    int remaining = nav_route_remaining_tiles();
+
+    bi += snprintf(buf + bi, sizeof(buf) - bi, "Remaining route to %s: ", s_route_target);
+    for (int i = s_route_seg_idx; i < s_route_seg_count && bi < (int)sizeof(buf) - 30; i++) {
+        int count = (i == s_route_seg_idx)
+                  ? (s_route_segs[i].count - s_route_tiles_done)
+                  : s_route_segs[i].count;
+        if (i > s_route_seg_idx) bi += snprintf(buf + bi, sizeof(buf) - bi, ", ");
+        bi += snprintf(buf + bi, sizeof(buf) - bi, "%d %s",
+                       count, s_dir_names8[s_route_segs[i].dir]);
+    }
+    snprintf(buf + bi, sizeof(buf) - bi, ". %d steps remaining.", remaining);
+    pc_acc_speak_interrupt(buf);
+}
+
 /* NPC proximity tracking — remember which NPCs we've already announced */
 #define MAX_PROXIMITY_TRACKED 16
 static mActor_name_t s_proximity_announced[MAX_PROXIMITY_TRACKED];
 static int s_proximity_count = 0;
 static int s_prev_scene_nav = -1;
+
+/* Forward declarations — terrain/obstacle tables built after field init */
+static void nav_terrain_init(void);
+static void nav_obstacle_init(void);
+static int nav_snap_to_walkable_r(int* ux, int* uz, int max_radius);
+static int nav_snap_to_walkable(int* ux, int* uz);
 
 /* Tile tick sound — generated WAV in memory, played via PlaySound */
 #define TICK_SAMPLE_RATE 8000
@@ -701,6 +809,138 @@ static int nav_result_exists(const char* name, xyz_t pos, f32 tolerance) {
     return 0;
 }
 
+/* ========================================================================= */
+/* Building entrance lookup via FG save data (3-step pattern)                */
+/* Uses mFI_BlockKind2BkNum + mFI_SearchFGInBlock + mFI_BkandUtNum2CenterWpos*/
+/* Same pattern the game uses for Wishing Well in mFI_SetOyasiroPos().       */
+/* ========================================================================= */
+
+typedef struct {
+    const char* name;
+    u32         block_kind;
+    mActor_name_t structure_id;   /* original FG item from ROM data */
+    mActor_name_t dummy_id;       /* DUMMY replacement when actor spawns (0 = none) */
+    f32         ct_dx;            /* actor_ct model placement offset from FG tile */
+    f32         ct_dz;            /* (shop/post office/able sisters shift by -20,+20) */
+    f32         entrance_dx;      /* X offset from actor world pos to entrance */
+    f32         entrance_dz;      /* Z offset from actor world pos to entrance */
+} BuildingLookup;
+
+/* Get shop structure item ID based on current shop upgrade level */
+static mActor_name_t nav_shop_structure_id(void) {
+    int level = mSP_GetShopLevel();
+    /* SHOP0=0x5804, SHOP1=0x5805, SHOP2=0x5806, SHOP3=0x5807 */
+    if (level >= 0 && level <= 3) return SHOP0 + level;
+    return SHOP0;
+}
+
+/* Get shop DUMMY item ID based on current shop upgrade level */
+static mActor_name_t nav_shop_dummy_id(void) {
+    int level = mSP_GetShopLevel();
+    /* DUMMY_SHOP0=0xF0F7 ... DUMMY_SHOP3 assumed sequential */
+    if (level >= 0 && level <= 3) return DUMMY_SHOP0 + level;
+    return DUMMY_SHOP0;
+}
+
+/* Find a building's entrance world position using FG save data scan.
+ * Locates the structure/DUMMY item in the acre's FG grid, converts to world
+ * coords, then applies the building-specific approach offset (from each
+ * building actor's check_player/door_type1 detection point).
+ * Returns 1 on success, 0 on failure. */
+static int nav_find_building_entrance(const char* building_name,
+                                       u32 block_kind,
+                                       mActor_name_t structure_id,
+                                       mActor_name_t dummy_id,
+                                       f32 ct_dx, f32 ct_dz,
+                                       f32 entrance_dx, f32 entrance_dz,
+                                       xyz_t* out_pos) {
+    /* Debug log file */
+    FILE* dbg = fopen("nav_debug.txt", "a");
+
+    int bx, bz;
+    if (mFI_BlockKind2BkNum(&bx, &bz, block_kind) == FALSE) {
+        if (dbg) {
+            fprintf(dbg, "[%s] mFI_BlockKind2BkNum FAILED for block_kind=0x%08X\n", building_name, block_kind);
+            fclose(dbg);
+        }
+        return 0;
+    }
+
+    if (dbg) fprintf(dbg, "[%s] acre bx=%d bz=%d (block_kind=0x%08X)\n", building_name, bx, bz, block_kind);
+
+    /* Find the structure or DUMMY item in the FG grid */
+    int ut_x, ut_z;
+    int found = FALSE;
+    const char* found_by = "none";
+
+    if (structure_id != 0) {
+        found = mFI_SearchFGInBlock(&ut_x, &ut_z, structure_id, bx, bz);
+        if (found) found_by = "structure_id";
+    }
+    if (!found && dummy_id != 0) {
+        found = mFI_SearchFGInBlock(&ut_x, &ut_z, dummy_id, bx, bz);
+        if (found) found_by = "dummy_id";
+    }
+
+    if (dbg) {
+        fprintf(dbg, "[%s] FG search: structure_id=0x%04X dummy_id=0x%04X found=%s (%s)\n",
+                building_name, structure_id, dummy_id, found ? "YES" : "NO", found_by);
+    }
+
+    if (!found) {
+        /* Last resort: acre center */
+        mFI_BkandUtNum2CenterWpos(out_pos, bx, bz, 8, 8);
+        if (dbg) {
+            fprintf(dbg, "[%s] FALLBACK acre center: world=(%.1f, %.1f, %.1f)\n",
+                    building_name, out_pos->x, out_pos->y, out_pos->z);
+            fclose(dbg);
+        }
+        return 1;
+    }
+
+    if (dbg) fprintf(dbg, "[%s] FG tile: ut_x=%d ut_z=%d\n", building_name, ut_x, ut_z);
+
+    /* Convert FG tile to world coords (FG anchor position) */
+    mFI_BkandUtNum2CenterWpos(out_pos, bx, bz, ut_x, ut_z);
+
+    if (dbg) fprintf(dbg, "[%s] FG tile world pos: x=%.1f y=%.1f z=%.1f\n",
+                     building_name, out_pos->x, out_pos->y, out_pos->z);
+
+    /* Apply actor ct offset (model placement shift from FG tile center).
+     * Shop/PostOffice/AbleSisters shift by (-20, +20) in their actor_ct. */
+    out_pos->x += ct_dx;
+    out_pos->z += ct_dz;
+
+    if (dbg && (ct_dx != 0.0f || ct_dz != 0.0f))
+        fprintf(dbg, "[%s] + ct offset (%.1f, %.1f) -> actor pos x=%.1f z=%.1f\n",
+                building_name, ct_dx, ct_dz, out_pos->x, out_pos->z);
+
+    /* Apply building-specific approach offset (from check_player/door_type1) */
+    out_pos->x += entrance_dx;
+    out_pos->z += entrance_dz;
+
+    if (dbg) fprintf(dbg, "[%s] + entrance offset (%.1f, %.1f) -> entrance x=%.1f z=%.1f\n",
+                     building_name, entrance_dx, entrance_dz, out_pos->x, out_pos->z);
+
+    /* Snap to nearest walkable tile */
+    int snap_ux = (int)(out_pos->x / mFI_UT_WORLDSIZE_X_F);
+    int snap_uz = (int)(out_pos->z / mFI_UT_WORLDSIZE_Z_F);
+    int pre_snap_ux = snap_ux, pre_snap_uz = snap_uz;
+    int snap_ok = nav_snap_to_walkable(&snap_ux, &snap_uz);
+    mFI_BkandUtNum2CenterWpos(out_pos, snap_ux / UT_X_NUM, snap_uz / UT_Z_NUM,
+                               snap_ux % UT_X_NUM, snap_uz % UT_Z_NUM);
+
+    if (dbg) {
+        fprintf(dbg, "[%s] snap: tile (%d,%d)->(%d,%d) ok=%d -> final world x=%.1f z=%.1f\n",
+                building_name, pre_snap_ux, pre_snap_uz, snap_ux, snap_uz, snap_ok,
+                out_pos->x, out_pos->z);
+        fprintf(dbg, "---\n");
+        fclose(dbg);
+    }
+
+    return 1;
+}
+
 static void nav_refresh(void) {
     s_result_count = 0;
 
@@ -888,34 +1128,60 @@ static void nav_refresh(void) {
             }
         }
 
-        /* Step 4: Buildings — supplement with block-type data for ALL 30 acres */
+        /* Step 4: Buildings — FG save data scan for precise entrance positions.
+         * Uses the same 3-step pattern as mFI_SetOyasiroPos():
+         *   1. mFI_BlockKind2BkNum() — find the acre
+         *   2. mFI_SearchFGInBlock() — find the tile (structure or DUMMY item)
+         *   3. mFI_BkandUtNum2CenterWpos() — convert to world coords + entrance offset */
         if (s_category == NAV_CAT_BUILDINGS && scene == SCENE_FG) {
-            for (int bz = ACRE_MIN_Z; bz <= ACRE_MAX_Z; bz++) {
-                for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
-                    int bt = data_combi_table[Save_Get(combi_table[bz][bx]).combination_type].type;
-                    const char* bname = NULL;
+            /* Shop approach offset depends on upgrade level:
+             * Level 0 (Nook's Cranny): door_type1 approach (-50, +50) from ac_shop_move.c_inc
+             * Level 1+ (Conveni/Super/Depart): door_type1 approach (-25, +82.5) from ac_conveni_move.c_inc */
+            int shop_level = mSP_GetShopLevel();
+            f32 shop_dx = (shop_level == 0) ? -50.0f : -25.0f;
+            f32 shop_dz = (shop_level == 0) ? 50.0f : 82.5f;
 
-                    switch (bt) {
-                        case mFM_BLOCK_TYPE_TRACKS_STATION:    bname = "Train Station"; break;
-                        case mFM_BLOCK_TYPE_TRACKS_SHOP:       bname = "Nook's Store"; break;
-                        case mFM_BLOCK_TYPE_TRACKS_POST_OFFICE: bname = "Post Office"; break;
-                        case mFM_BLOCK_TYPE_SHRINE:            bname = "Wishing Well"; break;
-                        case mFM_BLOCK_TYPE_POLICE_BOX:        bname = "Police Station"; break;
-                        case mFM_BLOCK_TYPE_MUSEUM:            bname = "Museum"; break;
-                        case mFM_BLOCK_TYPE_NEEDLEWORK:        bname = "Able Sisters"; break;
-                        case mFM_BLOCK_TYPE_TRACKS_DUMP:       bname = "Dump"; break;
-                        case mFM_BLOCK_TYPE_PORT:              bname = "Dock"; break;
-                        default: break;
-                    }
+            mActor_name_t shop_struct = nav_shop_structure_id();
+            mActor_name_t shop_dummy = nav_shop_dummy_id();
 
-                    if (bname) {
-                        xyz_t center;
-                        mFI_BkandUtNum2CenterWpos(&center, bx, bz, 8, 8);
-                        if (!nav_result_exists(bname, center, 640.0f)) {
-                            int in_cur = (bx == pbx && bz == pbz) ? 1 : 0;
-                            nav_add_data_result(bname, center, player_pos, in_cur);
-                        }
+            /* ct_dx/ct_dz = actor_ct model placement offset from FG tile center.
+             * entrance_dx/dz = approach offset from actor world position.
+             * Total offset from FG tile = ct + entrance. */
+            BuildingLookup buildings[] = {
+                /*                                                                      ct_dx  ct_dz  ent_dx  ent_dz */
+                { "Nook's Store",    mRF_BLOCKKIND_SHOP,       shop_struct,    shop_dummy,          -20.f, 20.f, shop_dx, shop_dz },
+                { "Post Office",     mRF_BLOCKKIND_POSTOFFICE, POST_OFFICE,    DUMMY_POST_OFFICE,   -20.f, 20.f, -40.0f,  50.0f },
+                { "Train Station",   mRF_BLOCKKIND_STATION,    TRAIN_STATION,  DUMMY_STATION,        0.f,  0.f,   0.0f,  64.0f },
+                { "Wishing Well",    mRF_BLOCKKIND_SHRINE,     WISHING_WELL,   DUMMY_SHRINE,         0.f,  0.f,   0.0f,   0.0f },
+                { "Police Station",  mRF_BLOCKKIND_POLICE,     POLICE_STATION, DUMMY_POLICE_STATION,  0.f,  0.f,  50.0f,  50.0f },
+                { "Museum",          mRF_BLOCKKIND_MUSEUM,     MUSEUM,         DUMMY_MUSEUM,          0.f,  0.f,   0.0f, 100.0f },
+                { "Dump",            mRF_BLOCKKIND_DUMP,       DUMP,           0,                    -40.f,  0.f,   0.0f,   0.0f },
+                { "Able Sisters",    mRF_BLOCKKIND_TAILORS,    NEEDLEWORK_SHOP, DUMMY_NEEDLEWORK_SHOP, -20.f, 20.f, -40.0f, 50.0f },
+            };
+            int num_buildings = sizeof(buildings) / sizeof(buildings[0]);
+
+            for (int i = 0; i < num_buildings; i++) {
+                const BuildingLookup* b = &buildings[i];
+                xyz_t entrance;
+                if (nav_find_building_entrance(b->name, b->block_kind, b->structure_id,
+                                               b->dummy_id, b->ct_dx, b->ct_dz,
+                                               b->entrance_dx, b->entrance_dz, &entrance)) {
+                    if (!nav_result_exists(b->name, entrance, 120.0f)) {
+                        int ebx, ebz;
+                        mFI_Wpos2BlockNum(&ebx, &ebz, entrance);
+                        int in_cur = (ebx == pbx && ebz == pbz) ? 1 : 0;
+                        nav_add_data_result(b->name, entrance, player_pos, in_cur);
                     }
+                }
+            }
+
+            /* Dock: always at bx=5, bz=6 — no FG structure item, use acre center */
+            {
+                xyz_t dock_pos;
+                mFI_BkandUtNum2CenterWpos(&dock_pos, 5, 6, 8, 8);
+                if (!nav_result_exists("Dock", dock_pos, 120.0f)) {
+                    int in_cur = (5 == pbx && 6 == pbz) ? 1 : 0;
+                    nav_add_data_result("Dock", dock_pos, player_pos, in_cur);
                 }
             }
         }
@@ -1026,6 +1292,11 @@ static void nav_check_proximity(void) {
     if (scene != s_prev_scene_nav) {
         s_proximity_count = 0;
         s_prev_scene_nav = scene;
+        /* Rebuild terrain + obstacle tables when entering the field */
+        if (scene == SCENE_FG) {
+            nav_terrain_init();
+            nav_obstacle_init();
+        }
     }
 
     /* Only check outdoors */
@@ -1076,15 +1347,79 @@ static void nav_check_proximity(void) {
 }
 
 /* ========================================================================= */
-/* Forward declarations for pathfinding (defined later)                      */
+/* Terrain awareness table — built from g_block_kind_p after field init      */
 /* ========================================================================= */
 
-typedef struct {
-    int dir;    /* 0-7, index into s_dir_names8 */
-    int count;  /* number of tiles in this direction */
-} PathSeg;
+#define TERRAIN_FLAG_RIVER    (1 << 0)
+#define TERRAIN_FLAG_BRIDGE   (1 << 1)
+#define TERRAIN_FLAG_CLIFF    (1 << 2)
+#define TERRAIN_FLAG_SLOPE    (1 << 3)
+#define TERRAIN_FLAG_OCEAN    (1 << 4)
+#define TERRAIN_FLAG_BORDER   (1 << 5)
+#define TERRAIN_FLAG_RAILROAD (1 << 6)
 
-#define MAX_PATH_SEGS 64
+typedef struct {
+    u8  flags;       /* TERRAIN_FLAG_* bitmask */
+    u8  elevation;   /* from combi_table height (0-3) */
+} NavAcreTerrain;
+
+/* Covers full 7x10 grid. Playable area is [1..5][1..6]. */
+static NavAcreTerrain s_terrain[BLOCK_Z_NUM][BLOCK_X_NUM];
+static int s_terrain_ready = 0;
+
+/* Build terrain table from g_block_kind_p and combi_table.
+ * Called lazily before first pathfind, and whenever scene changes to FG. */
+static void nav_terrain_init(void) {
+    memset(s_terrain, 0, sizeof(s_terrain));
+
+    for (int bz = 0; bz < BLOCK_Z_NUM; bz++) {
+        for (int bx = 0; bx < BLOCK_X_NUM; bx++) {
+            int idx = bz * BLOCK_X_NUM + bx;
+            int kind = g_block_kind_p[idx];
+            u8 flags = 0;
+
+            if (kind & mRF_BLOCKKIND_RIVER)     flags |= TERRAIN_FLAG_RIVER;
+            if (kind & mRF_BLOCKKIND_BRIDGE)    flags |= TERRAIN_FLAG_BRIDGE;
+            if (kind & mRF_BLOCKKIND_CLIFF)     flags |= TERRAIN_FLAG_CLIFF;
+            if (kind & mRF_BLOCKKIND_SLOPE)     flags |= TERRAIN_FLAG_SLOPE;
+            if (kind & mRF_BLOCKKIND_OCEAN)     flags |= TERRAIN_FLAG_OCEAN;
+            if (kind & mRF_BLOCKKIND_BORDER)    flags |= TERRAIN_FLAG_BORDER;
+            if (kind & mRF_BLOCKKIND_RAILROAD)  flags |= TERRAIN_FLAG_RAILROAD;
+
+            s_terrain[bz][bx].flags = flags;
+            s_terrain[bz][bx].elevation = Save_Get(combi_table[bz][bx]).height;
+        }
+    }
+
+    s_terrain_ready = 1;
+}
+
+/* Check if a tile position is within the playable area (bx 1-5, bz 1-6) */
+static int nav_tile_in_playable(int ux, int uz) {
+    /* Playable tile range: X = 16..95 (acres 1-5), Z = 16..111 (acres 1-6) */
+    return (ux >= 1 * UT_X_NUM && ux < (ACRE_MAX_X + 1) * UT_X_NUM &&
+            uz >= 1 * UT_Z_NUM && uz < (ACRE_MAX_Z + 1) * UT_Z_NUM);
+}
+
+/* Get terrain flags for the acre containing tile (ux, uz) */
+static u8 nav_tile_acre_flags(int ux, int uz) {
+    int bx = ux / UT_X_NUM;
+    int bz = uz / UT_Z_NUM;
+    if (bx < 0 || bx >= BLOCK_X_NUM || bz < 0 || bz >= BLOCK_Z_NUM) return 0xFF;
+    return s_terrain[bz][bx].flags;
+}
+
+/* Get elevation for the acre containing tile (ux, uz) */
+static u8 nav_tile_acre_elevation(int ux, int uz) {
+    int bx = ux / UT_X_NUM;
+    int bz = uz / UT_Z_NUM;
+    if (bx < 0 || bx >= BLOCK_X_NUM || bz < 0 || bz >= BLOCK_Z_NUM) return 0;
+    return s_terrain[bz][bx].elevation;
+}
+
+/* ========================================================================= */
+/* Forward declarations for pathfinding (defined later)                      */
+/* ========================================================================= */
 
 static int nav_pathfind(int sx, int sz, int gx, int gz, PathSeg* segs, int max_segs);
 static void nav_speak_path(const char* target_name, PathSeg* segs, int seg_count);
@@ -1093,11 +1428,6 @@ static void nav_speak_path(const char* target_name, PathSeg* segs, int seg_count
 /* A* pathfinding on the tile grid                                           */
 /* ========================================================================= */
 
-/* Grid dimensions: 7 blocks * 16 tiles = 112 wide, 10 * 16 = 160 tall */
-#define NAV_GRID_W (BLOCK_X_NUM * UT_X_NUM)
-#define NAV_GRID_H (BLOCK_Z_NUM * UT_Z_NUM)
-#define NAV_GRID_SIZE (NAV_GRID_W * NAV_GRID_H)
-#define NAV_IDX(x, z) ((z) * NAV_GRID_W + (x))
 #define NAV_HEAP_MAX 8192
 
 /* Pathfinding workspace — malloc'd on demand, freed after use */
@@ -1179,7 +1509,12 @@ static u16 pf_heap_pop(NavPF* pf) {
 }
 
 static int nav_tile_walkable(int ux, int uz) {
-    return mCoBG_Unit2CheckNpc(ux, uz) ? 1 : 0;
+    if (!nav_tile_in_playable(ux, uz)) return 0;
+    /* Static obstacle grid covers FG items, houses, elevation, BG water/cliff.
+     * Built once at field init — no per-tile runtime checks needed. */
+    if (s_obstacle_ready) return !s_obstacle[NAV_IDX(ux, uz)];
+    /* Fallback before grid is built (shouldn't happen during pathfinding) */
+    return mCoBG_Unit2CheckNpc(ux, uz) != 0;
 }
 
 /* Manhattan distance heuristic (4-directional movement) */
@@ -1187,23 +1522,12 @@ static f32 nav_heuristic(int x0, int z0, int x1, int z1) {
     return (f32)(abs(x1 - x0) + abs(z1 - z0));
 }
 
-/* 4-direction neighbor offsets (cardinal only) */
-static const int s_dx8[] = { 0,  1,  0, -1 };
-static const int s_dz8[] = { -1,  0,  1,  0 };
-static const f32  s_cost8[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-#define NAV_DIR_COUNT 4
-
-/* Direction name for each of the 4 neighbors */
-static const char* s_dir_names8[] = {
-    "north", "east", "south", "west"
-};
-
 /* Snap an unwalkable tile to the nearest walkable neighbor (spiral search).
- * Used to find the door/entrance of buildings/houses. */
-static int nav_snap_to_walkable(int* ux, int* uz) {
+ * Used to find the door/entrance of buildings/houses.
+ * max_radius: how far to search (default 8, use 15 for tracks row buildings). */
+static int nav_snap_to_walkable_r(int* ux, int* uz, int max_radius) {
     if (nav_tile_walkable(*ux, *uz)) return 1;
-    /* Spiral outward up to 5 tiles */
-    for (int r = 1; r <= 5; r++) {
+    for (int r = 1; r <= max_radius; r++) {
         for (int dz = -r; dz <= r; dz++) {
             for (int dx = -r; dx <= r; dx++) {
                 if (abs(dx) != r && abs(dz) != r) continue; /* only perimeter */
@@ -1220,11 +1544,263 @@ static int nav_snap_to_walkable(int* ux, int* uz) {
     return 0;
 }
 
+static int nav_snap_to_walkable(int* ux, int* uz) {
+    return nav_snap_to_walkable_r(ux, uz, 8);
+}
+
+/* Classify an FG item for the obstacle grid debug tag.
+ * Returns 0 if item is walkable, or a tag char if blocked. */
+static u8 nav_classify_fg_item(mActor_name_t item) {
+    if (item == EMPTY_NO) return 0;
+    /* DUMMY items (type 0xF) are building markers — not obstacles */
+    if (ITEM_NAME_GET_TYPE(item) == NAME_TYPE_PAD15) return 0;
+    /* Check if item blocks NPC movement */
+    if (mFI_CheckFGNpcOn(item)) return 0; /* passable */
+    /* Classify the blocker */
+    if (item >= ENV_START && ITEM_NAME_GET_TYPE(item) == NAME_TYPE_ITEM0)
+        return 'T'; /* tree (grown) or rock */
+    if (item == FENCE0 || item == FENCE1 || item == WOOD_FENCE)
+        return 'F'; /* fence */
+    if (ITEM_NAME_GET_TYPE(item) == NAME_TYPE_STRUCT)
+        return 'S'; /* structure */
+    if (item >= NPC_HOUSE_START && item < NPC_HOUSE_END)
+        return 'S'; /* NPC house structure */
+    return 'X'; /* other blocker */
+}
+
+/* Mark a 3x3 house footprint in the obstacle grid */
+static void nav_mark_house_footprint(int cx, int cz) {
+    for (int dz = -1; dz <= 1; dz++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            int hx = cx + dx;
+            int hz = cz + dz;
+            if (hx >= 0 && hx < NAV_GRID_W && hz >= 0 && hz < NAV_GRID_H) {
+                s_obstacle[NAV_IDX(hx, hz)] = 'H';
+            }
+        }
+    }
+}
+
+/* Build the static obstacle grid once at field init.
+ * Reads directly from save data — valid for all 30 acres regardless of actor loading.
+ * Called from the scene-entry hook alongside nav_terrain_init(). */
+static void nav_obstacle_init(void) {
+    int house_count = 0;
+
+    memset(s_obstacle, 0, NAV_GRID_SIZE);
+
+    /* ------ Pass 1: FG items (trees, fences, rocks, structures) ------ */
+    for (int bz = ACRE_MIN_Z; bz <= ACRE_MAX_Z; bz++) {
+        for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
+            mFM_fg_c* fg = &Save_Get(fg[bz - 1][bx - 1]);
+            int base_ux = bx * UT_X_NUM;
+            int base_uz = bz * UT_Z_NUM;
+            for (int uz = 0; uz < UT_Z_NUM; uz++) {
+                for (int ux = 0; ux < UT_X_NUM; ux++) {
+                    mActor_name_t item = fg->items[uz][ux];
+                    u8 tag = nav_classify_fg_item(item);
+                    if (tag) {
+                        int gx = base_ux + ux;
+                        int gz = base_uz + uz;
+                        s_obstacle[NAV_IDX(gx, gz)] = tag;
+                    }
+                }
+            }
+        }
+    }
+
+    /* ------ Pass 2: House footprints from save data ------ */
+    for (int i = 0; i < ANIMAL_NUM_MAX; i++) {
+        Animal_c* animal = &Save_Get(animals[i]);
+        if (animal->id.npc_id == 0 || animal->id.npc_id == EMPTY_NO) continue;
+        Anmhome_c* home = &animal->home_info;
+        if (home->block_x == 0 && home->block_z == 0) continue;
+        int cx = home->block_x * UT_X_NUM + home->ut_x;
+        int cz = home->block_z * UT_Z_NUM + home->ut_z;
+        nav_mark_house_footprint(cx, cz);
+        house_count++;
+    }
+    for (int bz = ACRE_MIN_Z; bz <= ACRE_MAX_Z; bz++) {
+        for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
+            int bt = data_combi_table[Save_Get(combi_table[bz][bx]).combination_type].type;
+            if (bt == mFM_BLOCK_TYPE_PLAYER_HOUSE) {
+                static const int slot_ut[][2] = {{4,4},{12,4},{4,12},{12,12}};
+                for (int s = 0; s < 4; s++) {
+                    int hcx = bx * UT_X_NUM + slot_ut[s][0];
+                    int hcz = bz * UT_Z_NUM + slot_ut[s][1];
+                    nav_mark_house_footprint(hcx, hcz);
+                    house_count++;
+                }
+            }
+        }
+    }
+
+    /* ------ Pass 3: Elevation boundaries ------ */
+    if (s_terrain_ready) {
+        for (int bz = ACRE_MIN_Z; bz <= ACRE_MAX_Z; bz++) {
+            for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
+                u8 elev = s_terrain[bz][bx].elevation;
+                u8 flags = s_terrain[bz][bx].flags;
+                if (flags & TERRAIN_FLAG_SLOPE) continue;
+
+                int neighbors[][2] = {{bx,bz-1},{bx,bz+1},{bx-1,bz},{bx+1,bz}};
+                for (int n = 0; n < 4; n++) {
+                    int nbx = neighbors[n][0];
+                    int nbz = neighbors[n][1];
+                    if (nbx < ACRE_MIN_X || nbx > ACRE_MAX_X) continue;
+                    if (nbz < ACRE_MIN_Z || nbz > ACRE_MAX_Z) continue;
+
+                    u8 n_elev = s_terrain[nbz][nbx].elevation;
+                    u8 n_flags = s_terrain[nbz][nbx].flags;
+                    if (n_elev == elev) continue;
+                    if (n_flags & TERRAIN_FLAG_SLOPE) continue;
+
+                    int base_ux = bx * UT_X_NUM;
+                    int base_uz = bz * UT_Z_NUM;
+                    if (nbz < bz) {
+                        for (int ux = 0; ux < UT_X_NUM; ux++) {
+                            int idx = NAV_IDX(base_ux + ux, base_uz);
+                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
+                        }
+                    } else if (nbz > bz) {
+                        for (int ux = 0; ux < UT_X_NUM; ux++) {
+                            int idx = NAV_IDX(base_ux + ux, base_uz + UT_Z_NUM - 1);
+                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
+                        }
+                    } else if (nbx < bx) {
+                        for (int uz = 0; uz < UT_Z_NUM; uz++) {
+                            int idx = NAV_IDX(base_ux, base_uz + uz);
+                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
+                        }
+                    } else {
+                        for (int uz = 0; uz < UT_Z_NUM; uz++) {
+                            int idx = NAV_IDX(base_ux + UT_X_NUM - 1, base_uz + uz);
+                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* ------ Pass 4: BG water/cliff tiles ------ */
+    for (int gz = ACRE_MIN_Z * UT_Z_NUM; gz < (ACRE_MAX_Z + 1) * UT_Z_NUM; gz++) {
+        for (int gx = ACRE_MIN_X * UT_X_NUM; gx < (ACRE_MAX_X + 1) * UT_X_NUM; gx++) {
+            if (!mCoBG_Unit2CheckNpc(gx, gz)) {
+                int idx = NAV_IDX(gx, gz);
+                if (!s_obstacle[idx]) s_obstacle[idx] = 'W';
+            }
+        }
+    }
+
+    s_obstacle_ready = 1;
+
+    /* ------ Debug output: open file AFTER all passes complete ------ */
+    {
+        FILE* dbg = fopen("town_generation_debug.txt", "a");
+        if (dbg) {
+            int total = 0, trees = 0, fences = 0, houses = 0, structs = 0;
+            int elev = 0, water = 0, other = 0;
+            for (int i = 0; i < NAV_GRID_SIZE; i++) {
+                u8 v = s_obstacle[i];
+                if (!v) continue;
+                total++;
+                switch (v) {
+                    case 'T': trees++;   break;
+                    case 'F': fences++;  break;
+                    case 'H': houses++;  break;
+                    case 'S': structs++; break;
+                    case 'E': elev++;    break;
+                    case 'W': water++;   break;
+                    default:  other++;   break;
+                }
+            }
+
+            fprintf(dbg, "\n=== OBSTACLE GRID ===\n");
+            fprintf(dbg, "Total blocked: %d / %d\n", total, NAV_GRID_SIZE);
+            fprintf(dbg, "  Trees/rocks: %d\n", trees);
+            fprintf(dbg, "  Fences:      %d\n", fences);
+            fprintf(dbg, "  Houses:      %d  (footprints marked)\n", houses);
+            fprintf(dbg, "  Structures:  %d\n", structs);
+            fprintf(dbg, "  Elevation:   %d\n", elev);
+            fprintf(dbg, "  Water/cliff: %d\n", water);
+            fprintf(dbg, "  Other:       %d\n", other);
+
+            /* House detail listing */
+            fprintf(dbg, "\n--- Villager houses ---\n");
+            for (int i = 0; i < ANIMAL_NUM_MAX; i++) {
+                Animal_c* animal = &Save_Get(animals[i]);
+                if (animal->id.npc_id == 0 || animal->id.npc_id == EMPTY_NO) continue;
+                Anmhome_c* home = &animal->home_info;
+                if (home->block_x == 0 && home->block_z == 0) continue;
+                int hx = home->block_x * UT_X_NUM + home->ut_x;
+                int hz = home->block_z * UT_Z_NUM + home->ut_z;
+                fprintf(dbg, "  NPC house %d: center tile (%d,%d) acre (%d,%d)\n",
+                        i, hx, hz, home->block_x, home->block_z);
+            }
+            fprintf(dbg, "\n--- Player houses ---\n");
+            for (int bz = ACRE_MIN_Z; bz <= ACRE_MAX_Z; bz++) {
+                for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
+                    int bt = data_combi_table[Save_Get(combi_table[bz][bx]).combination_type].type;
+                    if (bt == mFM_BLOCK_TYPE_PLAYER_HOUSE) {
+                        static const int slot_ut2[][2] = {{4,4},{12,4},{4,12},{12,12}};
+                        for (int s = 0; s < 4; s++) {
+                            fprintf(dbg, "  Player house slot %d: center tile (%d,%d) acre (%d,%d)\n",
+                                    s, bx * UT_X_NUM + slot_ut2[s][0],
+                                    bz * UT_Z_NUM + slot_ut2[s][1], bx, bz);
+                        }
+                    }
+                }
+            }
+            fprintf(dbg, "  Total houses: %d\n", house_count);
+
+            /* ASCII grid — playable area only */
+            fprintf(dbg, "\n--- ASCII TOWN MAP ---\n");
+            fprintf(dbg, "Legend: .=walkable T=tree F=fence H=house S=structure E=elevation W=water X=other\n");
+            fprintf(dbg, "Rows=Z(north to south), Cols=X(west to east). Acre boundaries: |/- \n\n");
+
+            fprintf(dbg, "     ");
+            for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
+                fprintf(dbg, "    bx=%d           ", bx);
+            }
+            fprintf(dbg, "\n");
+
+            for (int gz = ACRE_MIN_Z * UT_Z_NUM; gz < (ACRE_MAX_Z + 1) * UT_Z_NUM; gz++) {
+                if (gz % UT_Z_NUM == 0) {
+                    int bz = gz / UT_Z_NUM;
+                    fprintf(dbg, "bz=%d ", bz);
+                    for (int gx = ACRE_MIN_X * UT_X_NUM; gx < (ACRE_MAX_X + 1) * UT_X_NUM; gx++) {
+                        fprintf(dbg, "-");
+                        if ((gx + 1) % UT_X_NUM == 0 && gx + 1 < (ACRE_MAX_X + 1) * UT_X_NUM)
+                            fprintf(dbg, "+");
+                    }
+                    fprintf(dbg, "\n");
+                }
+                fprintf(dbg, "%3d: ", gz);
+                for (int gx = ACRE_MIN_X * UT_X_NUM; gx < (ACRE_MAX_X + 1) * UT_X_NUM; gx++) {
+                    if (gx % UT_X_NUM == 0 && gx > ACRE_MIN_X * UT_X_NUM)
+                        fprintf(dbg, "|");
+                    u8 v = s_obstacle[NAV_IDX(gx, gz)];
+                    fprintf(dbg, "%c", v ? (char)v : '.');
+                }
+                fprintf(dbg, "\n");
+            }
+
+            fprintf(dbg, "\n=== END OBSTACLE GRID ===\n");
+            fclose(dbg);
+        }
+    }
+}
+
 #define MAX_RAW_PATH 512
 
 /* Run A* from (sx,sz) to (gx,gz). Returns number of direction segments,
  * or 0 if no path found. Writes segments to segs[]. */
 static int nav_pathfind(int sx, int sz, int gx, int gz, PathSeg* segs, int max_segs) {
+    /* Ensure terrain + obstacle tables are built */
+    if (!s_terrain_ready) nav_terrain_init();
+    if (!s_obstacle_ready) nav_obstacle_init();
+
     /* Snap start and goal to nearest walkable tiles (handles building interiors) */
     nav_snap_to_walkable(&sx, &sz);
     nav_snap_to_walkable(&gx, &gz);
@@ -1234,6 +1810,12 @@ static int nav_pathfind(int sx, int sz, int gx, int gz, PathSeg* segs, int max_s
 
     u16 start = (u16)NAV_IDX(sx, sz);
     u16 goal  = (u16)NAV_IDX(gx, gz);
+
+    /* Temporarily clear start and goal in obstacle grid so A* can use them */
+    u8 save_start = s_obstacle[start];
+    u8 save_goal  = s_obstacle[goal];
+    s_obstacle[start] = 0;
+    s_obstacle[goal] = 0;
 
     pf->g[start] = 0.0f;
     pf->f[start] = nav_heuristic(sx, sz, gx, gz);
@@ -1341,6 +1923,33 @@ static int nav_pathfind(int sx, int sz, int gx, int gz, PathSeg* segs, int max_s
     }
 
     pf_free(pf);
+
+    /* Log path result to nav_debug.txt */
+    {
+        FILE* dbg = fopen("nav_debug.txt", "a");
+        if (dbg) {
+            fprintf(dbg, "[PATH] start tile (%d,%d) -> goal tile (%d,%d)\n", sx, sz, gx, gz);
+            if (!found) {
+                fprintf(dbg, "[PATH] NO PATH FOUND\n");
+            } else if (seg_count == 0) {
+                fprintf(dbg, "[PATH] already at goal\n");
+            } else {
+                int total = 0;
+                for (int i = 0; i < seg_count; i++) {
+                    fprintf(dbg, "[PATH] segment %d: %s x%d\n",
+                            i + 1, s_dir_names8[segs[i].dir], segs[i].count);
+                    total += segs[i].count;
+                }
+                fprintf(dbg, "[PATH] total steps: %d\n", total);
+            }
+            fclose(dbg);
+        }
+    }
+
+    /* Restore start/goal obstacle values (grid is static, don't permanently clear) */
+    s_obstacle[start] = save_start;
+    s_obstacle[goal] = save_goal;
+
     return found ? seg_count : -1; /* -1 = no path, 0 = already there */
 }
 
@@ -1381,7 +1990,8 @@ void pc_acc_nav_update(void) {
         nav_generate_tick_wav();
     }
 
-    /* Tile tick: play a subtle click when the player crosses into a new tile. */
+    /* Tile tick: play a subtle click when the player crosses into a new tile.
+     * Also advance active route progress when moving in the expected direction. */
     {
         GAME_PLAY* play = (GAME_PLAY*)gamePT;
         if (play && Save_Get(scene_no) == SCENE_FG) {
@@ -1391,6 +2001,64 @@ void pc_acc_nav_update(void) {
                 if (mFI_Wpos2UtNum(&tx, &tz, player->actor_class.world.position)) {
                     if (s_prev_tile_x >= 0 && (tx != s_prev_tile_x || tz != s_prev_tile_z)) {
                         nav_play_tick();
+
+                        /* Route progress: check if this tile move matches current segment */
+                        if (s_route_active && s_route_seg_idx < s_route_seg_count) {
+                            int move_dx = tx - s_route_tile_x;
+                            int move_dz = tz - s_route_tile_z;
+                            PathSeg* seg = &s_route_segs[s_route_seg_idx];
+                            int expected_dx = s_dx8[seg->dir];
+                            int expected_dz = s_dz8[seg->dir];
+
+                            if (move_dx == expected_dx && move_dz == expected_dz) {
+                                /* Moved in expected direction */
+                                s_route_tiles_done++;
+                                s_route_tile_x = tx;
+                                s_route_tile_z = tz;
+
+                                if (s_route_tiles_done >= seg->count) {
+                                    /* Segment complete — advance to next */
+                                    s_route_seg_idx++;
+                                    s_route_tiles_done = 0;
+
+                                    if (s_route_seg_idx >= s_route_seg_count) {
+                                        /* Route complete */
+                                        char buf[128];
+                                        snprintf(buf, sizeof(buf), "Arrived at %s", s_route_target);
+                                        pc_acc_speak_interrupt(buf);
+                                        nav_clear_route();
+                                    } else {
+                                        /* Announce next segment */
+                                        nav_speak_current_step();
+                                    }
+                                }
+                            } else {
+                                /* Moved in wrong direction — recalculate route
+                                 * immediately from current position. */
+                                s_route_tile_x = tx;
+                                s_route_tile_z = tz;
+                                if (s_route_goal_x >= 0) {
+                                    int new_result = nav_pathfind(tx, tz,
+                                        s_route_goal_x, s_route_goal_z,
+                                        s_route_segs, MAX_PATH_SEGS);
+                                    if (new_result > 0) {
+                                        s_route_seg_count = new_result;
+                                        s_route_seg_idx = 0;
+                                        s_route_tiles_done = 0;
+                                        pc_acc_speak_interrupt("Recalculating");
+                                        nav_speak_current_step();
+                                    } else if (new_result == 0) {
+                                        char buf2[128];
+                                        snprintf(buf2, sizeof(buf2), "Arrived at %s", s_route_target);
+                                        pc_acc_speak_interrupt(buf2);
+                                        nav_clear_route();
+                                    } else {
+                                        pc_acc_speak_interrupt("Lost route");
+                                        nav_clear_route();
+                                    }
+                                }
+                            }
+                        }
                     }
                     s_prev_tile_x = tx;
                     s_prev_tile_z = tz;
@@ -1400,6 +2068,7 @@ void pc_acc_nav_update(void) {
             /* Reset tile tracking when not outdoors */
             s_prev_tile_x = -1;
             s_prev_tile_z = -1;
+            if (s_route_active) nav_clear_route();
         }
     }
 
@@ -1432,6 +2101,7 @@ void pc_acc_nav_update(void) {
         s_category = (s_category + 1) % NAV_CAT_COUNT;
         s_nav_index = -1;
         nav_clear_lock();
+        nav_clear_route();
         nav_refresh();
         char buf[64];
         snprintf(buf, sizeof(buf), "%s, %d found", s_cat_names[s_category], s_result_count);
@@ -1442,6 +2112,7 @@ void pc_acc_nav_update(void) {
         s_category = (s_category + NAV_CAT_COUNT - 1) % NAV_CAT_COUNT;
         s_nav_index = -1;
         nav_clear_lock();
+        nav_clear_route();
         nav_refresh();
         char buf[64];
         snprintf(buf, sizeof(buf), "%s, %d found", s_cat_names[s_category], s_result_count);
@@ -1450,6 +2121,7 @@ void pc_acc_nav_update(void) {
     /* L (no shift): next item — moves selection and locks new target */
     else if (!shift && l_key && !s_prev_l) {
         nav_clear_lock();
+        nav_clear_route();
         nav_refresh();
         if (s_result_count == 0) {
             char buf[64];
@@ -1464,6 +2136,7 @@ void pc_acc_nav_update(void) {
     /* J (no shift): prev item — moves selection and locks new target */
     else if (!shift && j_key && !s_prev_j) {
         nav_clear_lock();
+        nav_clear_route();
         nav_refresh();
         if (s_result_count == 0) {
             char buf[64];
@@ -1476,89 +2149,120 @@ void pc_acc_nav_update(void) {
             NAV_ANNOUNCE_RESULT(&s_results[s_nav_index]);
         }
     }
-    /* Shift+K: A* pathfinding to selected target */
+    /* Shift+K: read remaining route overview, or generate new route */
     else if (shift && k_key && !s_prev_k) {
-        nav_refresh();
-        if (s_result_count == 0 || s_nav_index < 0) {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "No %s selected", s_cat_names[s_category]);
-            pc_acc_speak_interrupt(buf);
-        } else if (Save_Get(scene_no) != SCENE_FG) {
-            pc_acc_speak_interrupt("Pathfinding only works outdoors");
+        if (s_route_active) {
+            /* Active route — read all remaining segments */
+            nav_speak_remaining_route();
         } else {
-            NavResult* r = &s_results[s_nav_index];
-            GAME_PLAY* play = (GAME_PLAY*)gamePT;
-            PLAYER_ACTOR* player = play ? get_player_actor_withoutCheck(play) : NULL;
-            if (!player) {
-                pc_acc_speak_interrupt("Cannot pathfind right now");
+            /* No active route — generate one and speak full route */
+            nav_refresh();
+            if (s_result_count == 0 || s_nav_index < 0) {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "No %s selected", s_cat_names[s_category]);
+                pc_acc_speak_interrupt(buf);
+            } else if (Save_Get(scene_no) != SCENE_FG) {
+                pc_acc_speak_interrupt("Pathfinding only works outdoors");
             } else {
-                xyz_t p_pos = player->actor_class.world.position;
-                xyz_t t_pos = r->world_pos;
-
-                int p_ux, p_uz, t_ux, t_uz;
-                if (mFI_Wpos2UtNum(&p_ux, &p_uz, p_pos) &&
-                    mFI_Wpos2UtNum(&t_ux, &t_uz, t_pos)) {
-
-                    PathSeg segs[MAX_PATH_SEGS];
-                    int result = nav_pathfind(p_ux, p_uz, t_ux, t_uz, segs, MAX_PATH_SEGS);
-
-                    if (result >= 0) {
-                        nav_speak_path(r->name, segs, result);
-                    } else {
-                        char buf[128];
-                        snprintf(buf, sizeof(buf), "No path to %s", r->name);
-                        pc_acc_speak_interrupt(buf);
-                    }
+                NavResult* r = &s_results[s_nav_index];
+                GAME_PLAY* play = (GAME_PLAY*)gamePT;
+                PLAYER_ACTOR* player = play ? get_player_actor_withoutCheck(play) : NULL;
+                if (!player) {
+                    pc_acc_speak_interrupt("Cannot pathfind right now");
                 } else {
-                    pc_acc_speak_interrupt("Cannot determine position");
+                    xyz_t p_pos = player->actor_class.world.position;
+                    xyz_t t_pos = r->world_pos;
+                    int p_ux, p_uz, t_ux, t_uz;
+                    if (mFI_Wpos2UtNum(&p_ux, &p_uz, p_pos) &&
+                        mFI_Wpos2UtNum(&t_ux, &t_uz, t_pos)) {
+                        int result = nav_pathfind(p_ux, p_uz, t_ux, t_uz,
+                                                  s_route_segs, MAX_PATH_SEGS);
+                        if (result > 0) {
+                            s_route_seg_count = result;
+                            s_route_seg_idx = 0;
+                            s_route_tiles_done = 0;
+                            s_route_active = 1;
+                            s_route_tile_x = p_ux;
+                            s_route_tile_z = p_uz;
+                            s_route_goal_x = t_ux;
+                            s_route_goal_z = t_uz;
+                            snprintf(s_route_target, sizeof(s_route_target), "%s", r->name);
+                            nav_speak_path(r->name, s_route_segs, s_route_seg_count);
+                        } else if (result == 0) {
+                            char buf[128];
+                            snprintf(buf, sizeof(buf), "Already at %s", r->name);
+                            pc_acc_speak_interrupt(buf);
+                        } else {
+                            char buf[128];
+                            snprintf(buf, sizeof(buf), "No path to %s", r->name);
+                            pc_acc_speak_interrupt(buf);
+                        }
+                    } else {
+                        pc_acc_speak_interrupt("Cannot determine position");
+                    }
                 }
             }
         }
     }
-    /* K (no shift): A* pathfinding directions to selected target */
+    /* K (no shift): start route or announce current step */
     else if (!shift && k_key && !s_prev_k) {
-        nav_refresh();
-        if (s_result_count == 0 || s_nav_index < 0) {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "No %s selected", s_cat_names[s_category]);
-            pc_acc_speak_interrupt(buf);
-        } else if (Save_Get(scene_no) != SCENE_FG) {
-            /* Indoors: fall back to simple compass direction */
-            NavResult* r = &s_results[s_nav_index];
-            int steps = distance_to_steps(r->dist);
-            const char* dir = compass_direction(r->dx, r->dz);
-            char buf[128];
-            snprintf(buf, sizeof(buf), "%s, %s, %d steps", r->name, dir, steps);
-            pc_acc_speak_interrupt(buf);
+        if (s_route_active) {
+            /* Active route — announce current step progress */
+            nav_speak_current_step();
         } else {
-            NavResult* r = &s_results[s_nav_index];
-            GAME_PLAY* play2 = (GAME_PLAY*)gamePT;
-            PLAYER_ACTOR* player2 = play2 ? get_player_actor_withoutCheck(play2) : NULL;
-            if (!player2) {
-                pc_acc_speak_interrupt("Cannot pathfind right now");
+            /* No active route — generate one */
+            nav_refresh();
+            if (s_result_count == 0 || s_nav_index < 0) {
+                char buf[64];
+                snprintf(buf, sizeof(buf), "No %s selected", s_cat_names[s_category]);
+                pc_acc_speak_interrupt(buf);
+            } else if (Save_Get(scene_no) != SCENE_FG) {
+                NavResult* r = &s_results[s_nav_index];
+                int steps = distance_to_steps(r->dist);
+                const char* dir = compass_direction(r->dx, r->dz);
+                char buf[128];
+                snprintf(buf, sizeof(buf), "%s, %s, %d steps", r->name, dir, steps);
+                pc_acc_speak_interrupt(buf);
             } else {
-                xyz_t p_pos = player2->actor_class.world.position;
-                xyz_t t_pos = r->world_pos;
-
-                int p_ux, p_uz, t_ux, t_uz;
-                if (mFI_Wpos2UtNum(&p_ux, &p_uz, p_pos) &&
-                    mFI_Wpos2UtNum(&t_ux, &t_uz, t_pos)) {
-
-                    PathSeg segs[MAX_PATH_SEGS];
-                    int result = nav_pathfind(p_ux, p_uz, t_ux, t_uz, segs, MAX_PATH_SEGS);
-
-                    if (result >= 0) {
-                        nav_speak_path(r->name, segs, result);
-                    } else {
-                        /* No walkable path — fall back to straight-line direction */
-                        int steps = distance_to_steps(r->dist);
-                        const char* dir = compass_direction(r->dx, r->dz);
-                        char buf[128];
-                        snprintf(buf, sizeof(buf), "No walkable path to %s. Straight line: %s, %d steps", r->name, dir, steps);
-                        pc_acc_speak_interrupt(buf);
-                    }
+                NavResult* r = &s_results[s_nav_index];
+                GAME_PLAY* play2 = (GAME_PLAY*)gamePT;
+                PLAYER_ACTOR* player2 = play2 ? get_player_actor_withoutCheck(play2) : NULL;
+                if (!player2) {
+                    pc_acc_speak_interrupt("Cannot pathfind right now");
                 } else {
-                    pc_acc_speak_interrupt("Cannot determine position");
+                    xyz_t p_pos = player2->actor_class.world.position;
+                    xyz_t t_pos = r->world_pos;
+                    int p_ux, p_uz, t_ux, t_uz;
+                    if (mFI_Wpos2UtNum(&p_ux, &p_uz, p_pos) &&
+                        mFI_Wpos2UtNum(&t_ux, &t_uz, t_pos)) {
+                        int result = nav_pathfind(p_ux, p_uz, t_ux, t_uz,
+                                                  s_route_segs, MAX_PATH_SEGS);
+                        if (result > 0) {
+                            s_route_seg_count = result;
+                            s_route_seg_idx = 0;
+                            s_route_tiles_done = 0;
+                            s_route_active = 1;
+                            s_route_tile_x = p_ux;
+                            s_route_tile_z = p_uz;
+                            s_route_goal_x = t_ux;
+                            s_route_goal_z = t_uz;
+                            snprintf(s_route_target, sizeof(s_route_target), "%s", r->name);
+                            nav_speak_path(r->name, s_route_segs, s_route_seg_count);
+                        } else if (result == 0) {
+                            char buf[128];
+                            snprintf(buf, sizeof(buf), "Already at %s", r->name);
+                            pc_acc_speak_interrupt(buf);
+                        } else {
+                            int steps = distance_to_steps(r->dist);
+                            const char* dir = compass_direction(r->dx, r->dz);
+                            char buf[128];
+                            snprintf(buf, sizeof(buf), "No walkable path to %s. Straight line: %s, %d steps",
+                                     r->name, dir, steps);
+                            pc_acc_speak_interrupt(buf);
+                        }
+                    } else {
+                        pc_acc_speak_interrupt("Cannot determine position");
+                    }
                 }
             }
         }
@@ -1573,8 +2277,14 @@ int pc_acc_nav_is_active(void) {
     return pc_acc_is_active() ? 1 : 0;
 }
 
+void pc_acc_nav_build_obstacle_grid(void) {
+    nav_terrain_init();
+    nav_obstacle_init();
+}
+
 #else
 /* Non-Windows stubs */
 void pc_acc_nav_update(void) {}
 int pc_acc_nav_is_active(void) { return 0; }
+void pc_acc_nav_build_obstacle_grid(void) {}
 #endif

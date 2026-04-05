@@ -18,4 +18,8 @@ void pc_acc_nav_update(void);
 /* Returns 1 if accessibility nav system is active (J/K/L consumed). */
 int pc_acc_nav_is_active(void);
 
+/* Build static obstacle grid from save data (FG items, houses, elevation, BG).
+ * Call after mFM_SetBlockKindLoadCombi() and FG data is finalized. */
+void pc_acc_nav_build_obstacle_grid(void);
+
 #endif

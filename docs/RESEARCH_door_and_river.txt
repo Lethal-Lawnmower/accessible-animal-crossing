@@ -1,0 +1,311 @@
+================================================================================
+RESEARCH: Door Items, River Blocking, and Building Entrance Offsets
+================================================================================
+Date: 2026-04-04
+
+================================================================================
+QUESTION 1: Are DOOR items (0x4000-0x407F) in ROM FG data or runtime-only?
+================================================================================
+
+ANSWER: DOOR items are INDOOR SCENE DATA ONLY. They do NOT exist in the outdoor
+FG grid. They are NOT placed by building actors at runtime.
+
+Evidence:
+
+1. DOOR item definitions (include/m_name_table.h):
+   - DOOR_START = 0x4000
+   - DOOR0      = 0x4000
+   - DOOR1      = 0x4001
+   - EXIT_DOOR  = 0x4080
+   These are used inside buildings (museum rooms, player houses, etc.) as the
+   interactive door item you walk into to change rooms/exit.
+
+2. Building actor init functions do NOT place DOOR items:
+   - ac_shop_move.c_inc:    aSHOP_actor_init() calls mFI_SetFG_common(SHOP0/1/2/3, ...)
+   - ac_station_move.c_inc: aSTA_actor_init() calls mFI_SetFG_common(DUMMY_STATION, ...)
+   - ac_dump.c:             aDUM_actor_init() calls mFI_SetFG_common(0xF115, ...)
+   - ac_museum.c:           aMsm_actor_init() calls mFI_SetFG_common(DUMMY_MUSEUM, ...)
+   None of these place any item in the 0x4000-0x407F range.
+
+3. Outdoor building entry does NOT use DOOR items. Entry is triggered by
+   check_player() proximity detection in each building's move code. The player
+   walks to a detection point near the building, and the actor detects them
+   and initiates a scene transition via mPlib_request_main_door_type1() or
+   mDemo_Request().
+
+CONCLUSION: nav_find_door_in_acre() scanning for 0x4000-0x407F in the outdoor
+FG grid will NEVER find anything. This function is dead code and should be
+removed. Building entrance targeting must use the check_player detection point
+offsets instead (see Question 3).
+
+================================================================================
+QUESTION 2: Is the river acre blocking too aggressive?
+================================================================================
+
+ANSWER: YES. Blocking entire river acres is too aggressive and should be removed.
+Tile-level collision checks already handle water correctly.
+
+Evidence:
+
+1. Tile-level walkability (src/game/m_collision_bg_info.c_inc):
+   mCoBG_Attr2CheckPlaceNpc() returns (l_attribute_action_info[attr & 0x3F] >> 4) & 1
+
+   Water tile attributes 14-21 (0x0E-0x15):
+     Attr 14 (water 0): info = 0x01 → (0x01 >> 4) & 1 = 0 → NOT walkable
+     Attr 15 (water 1): info = 0x01 → NOT walkable
+     Attr 16 (water 2): info = 0x01 → NOT walkable
+     Attr 17 (water 3): info = 0x01 → NOT walkable
+     Attr 18 (water 4): info = 0x01 → NOT walkable
+     Attr 19 (water 5): info = 0x01 → NOT walkable
+     Attr 20 (water 6): info = 0x01 → NOT walkable
+     Attr 21 (water 7): info = 0x01 → NOT walkable
+
+   River bank/edge attributes 39-46 (0x27-0x2E):
+     Attr 39: info = 0x10 → (0x10 >> 4) & 1 = 1 → WALKABLE
+     Attr 40: info = 0x10 → WALKABLE
+     Attr 41: info = 0x10 → WALKABLE
+     Attr 42: info = 0x10 → WALKABLE
+     Attr 43: info = 0x10 → WALKABLE
+     Attr 44: info = 0x10 → WALKABLE
+     Attr 45: info = 0x10 → WALKABLE
+     Attr 46: info = 0x10 → WALKABLE
+
+2. River acres contain BOTH water tiles and land/bank tiles. The land portions
+   are perfectly walkable. The A* pathfinder with tile-level mCoBG_Unit2CheckNpc
+   checks will correctly route around water tiles and along river banks.
+
+3. The current acre-level river block in nav_acre_crossing_valid() prevents the
+   pathfinder from even considering tiles in river acres, making any path that
+   must cross through a river acre (even on dry land) impossible.
+
+4. Bridge detection is also unnecessary at acre level — bridge tiles have their
+   own walkable BG attributes. The pathfinder will naturally route across bridges
+   via tile-level checks.
+
+RECOMMENDATION: Remove the river-acre and bridge checks from
+nav_acre_crossing_valid(). Keep only:
+  - Ocean acre blocking (no walkable tiles exist)
+  - Border acre blocking (out of playable area)
+  - Railroad/tracks acre blocking (out of playable area)
+  - Elevation change blocking (still useful for cliff prevention)
+
+================================================================================
+QUESTION 3: Building entrance detection offsets (check_player)
+================================================================================
+
+For each building, the entrance is where the building's check_player() function
+detects the player. This is the point the pathfinder should target.
+
+All offsets are relative to actor->world.position (the actor's spawn point).
+World unit scale: 40 world units = 1 tile.
+
+─────────────────────────────────────────────────────────────────────────────────
+NOOK'S STORE (ac_shop_move.c_inc) — Shop levels 0-3
+─────────────────────────────────────────────────────────────────────────────────
+  Actor profile names: SHOP0, SHOP1, SHOP2, SHOP3 (0xF0F7-0xF0FA)
+  Block type: mFM_BLOCK_TYPE_TRACKS_SHOP
+
+  check_player detection point (line 126-127):
+    x = actor.x - 38.0f
+    z = actor.z + 42.0f
+
+  Approach position / door_type1 target (line 248-250):
+    x = actor.x - 50.0f
+    z = actor.z + 50.0f
+    angle = DEG2SHORT_ANGLE(135.0f)  (facing NW)
+
+  Exit spawn position (line 78-79):
+    x = actor.x - 68.29f
+    z = actor.z + 68.29f
+
+  In tiles (÷40):  detection ≈ (-1, +1),  approach = (-1.25, +1.25)
+
+  → USE approach position: (actor.x - 50, actor.z + 50)
+
+─────────────────────────────────────────────────────────────────────────────────
+CONVENI / UPGRADED NOOK (ac_conveni_move.c_inc)
+─────────────────────────────────────────────────────────────────────────────────
+  Block type: mFM_BLOCK_TYPE_TRACKS_SHOP (same block as regular shop)
+
+  check_player detection point (line 67-68):
+    x = actor.x - 14.0f
+    z = actor.z + 76.0f
+
+  Approach position / door_type1 target (line 258-259):
+    x = actor.x - 25.0f
+    z = actor.z + 82.5f
+    angle = DEG2SHORT_ANGLE(135.0f)
+
+  In tiles (÷40):  detection ≈ (-0.35, +1.9),  approach ≈ (-0.63, +2.06)
+
+  → USE approach position: (actor.x - 25, actor.z + 82.5)
+  NOTE: Conveni replaces Shop at upgrade. Same block type but different offsets.
+
+─────────────────────────────────────────────────────────────────────────────────
+POST OFFICE (ac_post_office_move.c_inc)
+─────────────────────────────────────────────────────────────────────────────────
+  Actor profile name: POST_OFFICE (DUMMY_POST_OFFICE = 0xF0FF)
+  Block type: mFM_BLOCK_TYPE_TRACKS_POST_OFFICE
+
+  check_player detection point (line 90-91):
+    x = actor.x - 40.0f
+    z = actor.z + 50.0f
+  Detection radius: t < 360.0f (squared distance)
+  Requires: A button press + facing south (y > 0x4000 && y < 0x8000)
+
+  Exit spawn position (line 60-61):
+    x = actor.x - 64.0f
+    z = actor.z + 64.0f
+
+  No door_type1 approach — entry requires A button trigger at detection point.
+
+  In tiles (÷40):  detection = (-1, +1.25)
+
+  → USE detection point: (actor.x - 40, actor.z + 50)
+
+─────────────────────────────────────────────────────────────────────────────────
+POLICE BOX (ac_police_box_move.c_inc)
+─────────────────────────────────────────────────────────────────────────────────
+  Actor profile name: POLICE_STATION (DUMMY_POLICE_STATION = 0xF101)
+  Block type: mFM_BLOCK_TYPE_POLICE_BOX
+
+  check_player detection point (line 85-86):
+    x = actor.x + 24.0f
+    z = actor.z + 40.0f
+
+  Approach position / door_type1 target (line 127-129):
+    x = actor.x + 50.0f
+    z = actor.z + 50.0f
+    angle = -DEG2SHORT_ANGLE(135.0f)  (facing NE)
+
+  Exit spawn position (line 53-54):
+    x = actor.x + 60.0f (uses home.position)
+    z = actor.z + 60.0f
+
+  In tiles (÷40):  detection ≈ (+0.6, +1),  approach = (+1.25, +1.25)
+
+  → USE approach position: (actor.x + 50, actor.z + 50)
+
+─────────────────────────────────────────────────────────────────────────────────
+MUSEUM (ac_museum.c)
+─────────────────────────────────────────────────────────────────────────────────
+  Actor profile name: MUSEUM (DUMMY_MUSEUM = 0xF120)
+  Block type: mFM_BLOCK_TYPE_MUSEUM
+
+  check_player detection point (line 202-205):
+    x = actor.x
+    z = actor.z + 100.0f
+  Detection radius: dist < 8000.0f (squared distance)
+
+  Approach position / door_type1 target (line 239-241):
+    x = actor.x
+    z = actor.z + 100.0f
+    angle = -DEG2SHORT_ANGLE(180.0f)  (facing north)
+
+  Exit spawn position (line 165-166):
+    x = actor.x (uses home.position)
+    z = actor.z + 120.0f
+
+  In tiles (÷40):  detection/approach = (0, +2.5)
+
+  → USE approach position: (actor.x, actor.z + 100)
+
+─────────────────────────────────────────────────────────────────────────────────
+ABLE SISTERS / NEEDLEWORK SHOP (ac_needlework_shop_move.c_inc)
+─────────────────────────────────────────────────────────────────────────────────
+  Actor profile name: NEEDLEWORK_SHOP (DUMMY_NEEDLEWORK_SHOP = 0xF0FF)
+  Block type: mFM_BLOCK_TYPE_NEEDLEWORK
+
+  check_player detection point (line 90-91):
+    x = actor.x - 40.0f
+    z = actor.z + 50.0f
+  Detection radius: t < 360.0f (squared distance)
+  Requires: A button press + facing south (y > 0x4000 && y < 0x8000)
+
+  Exit spawn position (line 60-61):
+    x = actor.x - 64.0f
+    z = actor.z + 64.0f
+
+  No door_type1 approach — entry requires A button trigger at detection point.
+
+  In tiles (÷40):  detection = (-1, +1.25)
+
+  → USE detection point: (actor.x - 40, actor.z + 50)
+
+─────────────────────────────────────────────────────────────────────────────────
+STATION (ac_station_move.c_inc)
+─────────────────────────────────────────────────────────────────────────────────
+  Actor profile name: STATION (DUMMY_STATION = 0xF100)
+  Block type: mFM_BLOCK_TYPE_TRACKS_STATION
+
+  NO check_player function. NO door entry mechanism.
+  The station is entered via the train interaction, not by walking to a door.
+  aSTA_actor_init() only places DUMMY_STATION in FG and sets up animation.
+
+  → NOT A WALKABLE ENTRANCE — skip for pathfinder targeting.
+
+─────────────────────────────────────────────────────────────────────────────────
+DUMP (ac_dump.c)
+─────────────────────────────────────────────────────────────────────────────────
+  Actor profile name: DUMP (0xF115 placed in FG at init)
+  Block type: mFM_BLOCK_TYPE_TRACKS_DUMP
+
+  NO check_player with coordinate offsets. aDUM_wait() (line 104-121) checks:
+    - player.z >= dump.z (player is south of dump)
+    - player_angle_y within ±0x2000 of facing dump
+  Then triggers a talk demo (MSG_4970), NOT a scene transition.
+  The dump is an outdoor recycling area, not an enterable building.
+
+  → NOT A DOOR ENTRANCE — target actor.world.position directly (the dump
+    itself). Player just needs to be south of it and facing it.
+
+================================================================================
+SUMMARY: RECOMMENDED APPROACH POSITIONS FOR PATHFINDER
+================================================================================
+
+Building          | Offset from actor.world.position  | Source
+──────────────────|───────────────────────────────────|──────────────────────
+Nook's Store      | x - 50,   z + 50                 | door_type1 approach
+Nook's Conveni    | x - 25,   z + 82.5               | door_type1 approach
+Post Office       | x - 40,   z + 50                 | check_player detect
+Police Box        | x + 50,   z + 50                 | door_type1 approach
+Museum            | x + 0,    z + 100                | door_type1 approach
+Able Sisters      | x - 40,   z + 50                 | check_player detect
+Station           | N/A (train entry, not walkable)   | —
+Dump              | x + 0,    z + 0 (south side)     | face from south
+
+NOTE ON SHOP vs CONVENI: Both use mFM_BLOCK_TYPE_TRACKS_SHOP. Need to determine
+which actor is active. The shop upgrades to conveni after certain milestones.
+At implementation time, check the shop level (arg0 in the actor or save data)
+to pick the correct offset. Alternatively, use the Shop offsets as a safe
+default — the player will be close enough to trigger the conveni detection too.
+
+NOTE ON ACTOR POSITIONS: The pathfinder does not have direct access to actor
+world positions at pathfind time. Options:
+  a) Scan FG grid for the DUMMY item (DUMMY_SHOP0 etc.) to find the structure
+     position, then apply offset. DUMMY items ARE placed by actor_init.
+  b) Use mFI_BlockKind2BkNum() to find the acre, then compute acre center +
+     known building placement offset within the acre.
+  c) Store actor positions in a lookup when buildings spawn.
+
+Option (a) is most reliable — the DUMMY items are placed in the FG grid by
+each building's actor_init and persist while the actor is loaded.
+
+================================================================================
+IMPLEMENTATION PLAN (for reference — no code changes in this file)
+================================================================================
+
+1. Remove nav_find_door_in_acre() — dead code, DOOR items don't exist outdoors.
+
+2. Remove river/bridge acre-level blocking from nav_acre_crossing_valid().
+   Keep ocean, border, railroad, and elevation checks.
+
+3. Rewrite nav_find_building_entrance() to:
+   a) Find the building's DUMMY item in the FG grid (already partially done)
+   b) Convert FG position to world coordinates
+   c) Apply the building-specific offset from the table above
+   d) Snap to nearest walkable tile
+   e) Return that as the pathfinder target
+
+4. Handle Shop vs Conveni by checking save data for shop upgrade level, or
+   just use the Shop offsets as a safe fallback.

@@ -1,0 +1,147 @@
+================================================================================
+PATHFINDER TERRAIN AWARENESS — Changes & Known Issues
+================================================================================
+Date: 2026-04-04
+
+================================================================================
+CHANGES IMPLEMENTED
+================================================================================
+
+1. TERRAIN AWARENESS TABLE (pc_acc_nav.c)
+   - New NavAcreTerrain struct: flags (river/bridge/cliff/slope/ocean/border/
+     railroad) + elevation (from combi_table height field)
+   - Static s_terrain[10][7] covering all 70 acres
+   - nav_terrain_init() reads g_block_kind_p[] and Save_Get(combi_table) to
+     populate the table after field init
+   - Rebuilds on scene change to SCENE_FG, and lazily before first pathfind
+
+2. PLAYABLE BOUNDS ENFORCEMENT (pc_acc_nav.c, nav_tile_walkable)
+   - nav_tile_in_playable() constrains pathfinding to bx=1..5, bz=1..6
+     (tile range: X=16..95, Z=16..111)
+   - Previously the pathfinder had no bounds — could route through ocean,
+     tracks, border acres
+
+3. ACRE-LEVEL FILTERING (pc_acc_nav.c, A* neighbor loop)
+   - nav_acre_crossing_valid() added to the A* neighbor expansion
+   - Blocks routing INTO: ocean acres, border acres, railroad/tracks acres
+   - Blocks routing INTO river acres that have no bridge
+   - Blocks elevation changes between acres unless one side is a slope acre
+   - Tile-level mCoBG_Unit2CheckNpc() still called for every tile (handles
+     water, cliff faces, trees, buildings at individual tile level)
+
+4. DOOR-BASED ENTRANCE TARGETING (pc_acc_nav.c, nav_find_building_entrance)
+   - New nav_find_door_in_acre(): scans FG grid for DOOR items (0x4000-0x407F)
+   - Primary method: find DOOR item, target 1 tile south (where player stands
+     facing north to enter)
+   - Fallback: structure/DUMMY item + exit offsets (for buildings without doors
+     like Dump, Wishing Well)
+   - Replaces old approach that used rewrite_out_data exit spawn offsets, which
+     placed the target too far south of the actual door
+
+5. CONTINUOUS DEBUG LOGGING (m_random_field_ovl.c)
+   - town_generation_debug.txt now appends instead of overwriting ("a" mode)
+   - Generation counter persisted by reading previous file for highest attempt #
+   - TTS announces attempt number: "Town generation attempt N started"
+
+================================================================================
+KNOWN ISSUES / NOT YET WORKING
+================================================================================
+
+ISSUE 1: PATHFINDING SAYS "AT" BUILDING WHEN STILL FAR FROM DOOR
+   Symptom: Player is in the same acre as Nook's Store but not at the door.
+   Pressing K says something like "Already at Nook's Store" or gives a very
+   short path that doesn't reach the actual door.
+
+   Root cause candidates:
+   a) The DOOR item may not be present in the FG grid at the time of scanning.
+      DOOR items might only be placed by the building actor when it spawns
+      (proximity-based). If the player is in a distant acre, the building actor
+      may not be loaded yet, and the DOOR item doesn't exist in the FG grid.
+      Need to verify: are DOOR items baked into the ROM combi FG data, or are
+      they placed at runtime by the actor?
+
+   b) The DOOR item search (nav_find_door_in_acre) might be finding a door
+      in the TRACKS row acre (bz=0 or bz=1) instead of the playable-area
+      version of the building. The shop's structure is in the tracks row
+      (bz=1) which is outside the playable FG grid (fg[] only covers bz=1..6
+      with index bz-1). Need to check if mFI_BlockKind2BkNum returns the
+      tracks row acre or the playable acre.
+
+   c) If nav_find_door_in_acre returns 0 (no door found), the fallback still
+      uses the old exit offsets which place the target too far from the door.
+
+   d) The snap_to_walkable step in the pathfinder may be snapping the target
+      to a nearby walkable tile that's not the actual door position.
+
+ISSUE 2: TRACKS ROW BUILDING TARGETING (pre-existing)
+   Buildings in the tracks row (Shop, Post Office, Station, Dump) have their
+   block_kind set in the tracks row (bz=1 in the 7x10 grid, but this is the
+   NON-PLAYABLE tracks row). mFI_BlockKind2BkNum does a linear scan and finds
+   the tracks row first. The playable-area door is in a different acre.
+
+   The tracks row IS bz=1 in the full grid, and bz=1 IS in the FG playable
+   range (fg[0][x] = bz=1). So the FG scan should work for bz=1 acres.
+   BUT: the building's structure item (SHOP0 etc) is placed in the tracks
+   row FG data. The DOOR item for entering from the south may be in a
+   different acre entirely, or may only exist at runtime.
+
+ISSUE 3: DOOR ITEMS MAY BE RUNTIME-ONLY
+   Need to investigate whether DOOR FG items are:
+   a) Baked into the combi FG ROM data (present from save load) — in which
+      case nav_find_door_in_acre should find them
+   b) Placed by the building actor at spawn time — in which case they only
+      exist when the player is nearby (4 visible blocks)
+   c) Something else entirely
+
+   If (b), then the door-based approach only works when near the building,
+   and we need a different strategy for long-distance targeting.
+
+ISSUE 4: ACRE-LEVEL RIVER BLOCKING MAY BE TOO AGGRESSIVE
+   Blocking ALL tiles in river acres without bridges may prevent valid paths.
+   River acres have both land and water tiles — the water tiles are already
+   blocked by mCoBG_Unit2CheckNpc. Blocking the entire acre prevents routing
+   through the land portions of river acres.
+   May need to remove the river acre block and rely purely on tile-level
+   collision checks for rivers.
+
+================================================================================
+FILES MODIFIED
+================================================================================
+
+pc/src/pc_acc_nav.c:
+  - Added m_field_make.h include
+  - Added forward declaration for nav_terrain_init()
+  - Added terrain awareness table (NavAcreTerrain, s_terrain[10][7])
+  - Added nav_terrain_init(), nav_tile_in_playable(), nav_tile_acre_flags(),
+    nav_tile_acre_elevation(), nav_acre_crossing_valid()
+  - Modified nav_tile_walkable(): added bounds check + acre-level filtering
+  - Modified A* loop: added nav_acre_crossing_valid() check
+  - Modified nav_pathfind(): lazy terrain init
+  - Added nav_find_door_in_acre()
+  - Rewrote nav_find_building_entrance(): door-first approach
+  - Added terrain rebuild on scene change to SCENE_FG
+
+src/game/m_random_field_ovl.c:
+  - Added string.h, stdlib.h includes
+  - Added s_generation_number counter
+  - Added tglog_count_previous() to read counter from existing file
+  - Changed tglog_open() from "w" to "a" mode, reads previous count
+  - Updated TTS to announce attempt number
+
+================================================================================
+NEXT STEPS TO INVESTIGATE
+================================================================================
+
+1. Dump the FG grid for the shop acre to see if DOOR items are present at
+   load time. Add 0x4000-0x407F range to the debug log's FG grid dump.
+
+2. Check if DOOR items are in the combi ROM FG data or placed at runtime.
+   Look at data_combi_table entries for shop-type blocks.
+
+3. If DOOR items are runtime-only, find the door's fixed offset relative to
+   the structure item for each building type. This would be a small constant
+   per building (e.g., shop door is always 2 tiles south, 1 tile west of
+   the SHOP0 structure item).
+
+4. Test whether the river acre blocking is too aggressive — may need to
+   allow routing through river acres and let tile-level checks handle water.

@@ -1,0 +1,365 @@
+================================================================================
+REFERENCE: town_generation_debug.txt — Debug Log Format & Contents
+================================================================================
+Date: 2026-04-04
+
+This file documents exactly what town_generation_debug.txt contains, section
+by section, and what each part means.
+
+================================================================================
+FILE STRUCTURE
+================================================================================
+
+The file is append-only. Each new town generation adds a new section. When the
+player rejects a map and generates another, a new GENERATION ATTEMPT block is
+appended. The file is NOT truncated between attempts.
+
+After the generation log completes, the obstacle grid data is appended by
+nav_obstacle_init() (called from pc_acc_nav_build_obstacle_grid).
+
+Overall structure:
+  [GENERATION ATTEMPT #1]
+    ... generation data ...
+  [END OF TOWN GENERATION LOG]
+  [OBSTACLE GRID]
+    ... obstacle data ...
+  [END OBSTACLE GRID]
+  [GENERATION ATTEMPT #2]    (if player generated another town)
+    ...
+  [END OF TOWN GENERATION LOG]
+  [OBSTACLE GRID]
+    ...
+  [END OBSTACLE GRID]
+
+================================================================================
+SECTION 1: GENERATION HEADER
+================================================================================
+
+Written by: tglog_open() in m_random_field_ovl.c
+
+Contents:
+  ########################################################
+  ##  GENERATION ATTEMPT #N
+  ########################################################
+  ANIMAL CROSSING GC — TOWN GENERATION DEBUG LOG
+  ========================================================
+
+  RNG seed at generation start: 0xXXXXXXXX
+
+N increments for each new generation (persists across file appends).
+The RNG seed is the qrand state at the moment generation begins.
+
+================================================================================
+SECTION 2: GENERATION STEPS (per attempt within the retry loop)
+================================================================================
+
+Written by: mRF_MakeRandomField_ovl() and sub-functions
+
+For EACH retry attempt, the following is logged:
+
+--- 2a. Stepmode & Perfect Bit ---
+  [STEPMODE] TWO_STEP or THREE_STEP (value=0 or 1)
+  [PERFECT BIT] 0x1FF (all 9 bits must be set)
+    Bits: SLOPE_L=1 SLOPE_R=1 BRIDGE_UP=1 BRIDGE_LO=1 SHRINE=1 ...
+
+--- 2b. Attempt Header ---
+  ################################################################
+  GENERATION ATTEMPT #N (RNG state=0xXXXXXXXX)
+  ################################################################
+
+--- 2c. Step [1]: Base Landform ---
+  [1] mRF_MakeBaseLandform (stepmode=TWO_STEP/THREE_STEP)
+
+  For 2-tier: logs cliff trace decisions
+    [CLIFF TRACE] at bx=X bz=Z, next_idx=N -> TYPE_NAME
+    [CLIFF] start_z_idx=N -> bz=Z, start_type_idx=N -> type=NAME
+    [CLIFF] Cliff trace: SUCCESS or FAILED
+
+  For 2-tier: logs river trace decisions
+    [RIVER PART1] trying start at bx=X, type=NAME
+    [RIVER] Part1 success: start at bx=X bz=Z
+    [RIVER] Part2+LastCheck: SUCCESS or FAILED
+
+  For 2-tier failures:
+    [LANDFORM STEP2] cliff+river attempt N FAILED, retrying
+    [LANDFORM STEP2] SUCCESS after N retries
+
+  For 3-tier:
+    [LANDFORM STEP3] selected variant N of 10 pre-built layouts
+
+--- 2d. Block Type Grid (after step 1) ---
+  --- block_types (after MakeBaseLandform) ---
+       bx0          bx1          bx2          ...
+  bz0: BORDER_TL    BORDER_TOP   BORDER_TOP   ...
+  bz1: TUNNEL_L     DUMP         DUMP         ...
+  ...
+
+  This shows the complete 7x10 acre type grid after cliff/river generation
+  but before building placement.
+
+--- 2e. Step [2]: Flat Place Information ---
+  [2] mRF_MakeFlatPlaceInfomation
+  (categorizes flat blocks by river side — no visible output)
+
+--- 2f. Step [3]: Beach Row ---
+  [3] mRF_SetMarinBlock (set beach row bz=6)
+
+  Block type grid printed again showing BEACH conversions.
+
+--- 2g. Step [4]: Bridges & Slopes ---
+  [4] mRF_SetBridgeAndSlopeBlock
+    Bridge/Slope result bits: 0xNNN
+      SLOPE_LEFT=YES/no SLOPE_RIGHT=YES/no BRIDGE_UPPER=YES/no BRIDGE_LOWER=YES/no
+
+  [BRIDGE] rng=N, cross at bx=X bz=Z
+  [BRIDGE UPPER] before_cross=N, selected=N
+  [BRIDGE UPPER] placed at bx=X bz=Z
+  [BRIDGE LOWER] after_cross=N, selected=N
+  [BRIDGE LOWER] placed at bx=X bz=Z
+
+  [SLOPE] cliff start at bz=Z, left_possibilities=N
+  [SLOPE LEFT] selected=N of N
+  [SLOPE LEFT] placed successfully
+  [SLOPE] right_possibilities=N
+  [SLOPE RIGHT] selected=N of N
+  [SLOPE RIGHT] placed successfully
+
+--- 2h. Step [5]: Able Sisters & Dock ---
+  [5] mRF_SetNeedleworkAndWharfBlock (Able Sisters + Dock)
+    Needlework/Wharf result bits: 0xNNN
+      NEEDLEWORK=YES/no
+      PORT placed at bx=5 bz=6
+      NEEDLEWORK placed at bx=N bz=6
+
+  [NEEDLEWORK/WHARF] needlework_bx_idx=N
+  [DOCK] placed at bx=5 bz=6
+
+--- 2i. Step [6]: Unique Flat Buildings ---
+  [6] mRF_SetUniqueFlatBlock (Shrine, Police, Museum)
+    UniqueFlatBlock result bits: 0xNNN
+      SHRINE=YES/no POLICE=YES/no MUSEUM=YES/no
+      SHRINE at bx=N bz=N
+      POLICE at bx=N bz=N
+      MUSEUM at bx=N bz=N
+
+  [UNIQUE FLAT] side0=LEFT/RIGHT side1=LEFT/RIGHT
+  [SHRINE] placed on LEFT/RIGHT side (primary/fallback)
+  [POLICE] placed on LEFT/RIGHT side
+  [MUSEUM] placed (either side, below cliff)
+
+--- 2j. Step [7]: Rail Buildings ---
+  [7] mRF_SetUniqueRailBlock (Shop + Post Office)
+    SHOP placed at bx=N bz=1
+    POST_OFFICE placed at bx=N bz=1
+    STATION at bx=3 bz=1 (always 3)
+    DUMP at bx=N bz=1
+
+  [RAIL] swap=odd/even -> t0=SHOP/POST_OFFICE, t1=POST_OFFICE/SHOP
+  [RAIL] SHOP placed at bx=N bz=1
+  [RAIL] POST_OFFICE placed at bx=N bz=1
+
+--- 2k. Step [8]: Pool/Lake ---
+  [8] mRF_SetPoolBlock (lake)
+    Pool result bits: 0xNNN  POOL=YES/no
+    POOL block at bx=N bz=N type=NAME
+
+  [POOL] pure_river_num=N
+  [POOL] selected=N of N
+  [POOL] placed successfully
+
+--- 2l. Step [9]: Sea Block Bridge ---
+  [9] mRF_SetSeaBlockWithBridgeRiver
+    SeaBlock result bits: 0xNNN  BRIDGE_LOWER=YES/no
+
+--- 2m. Height Table ---
+  [HEIGHT TABLE]
+       bx0  bx1  bx2  bx3  bx4  bx5  bx6
+  bz0: 1    1    1    1    1    1    1
+  bz1: 1    1    1    1    1    1    1
+  bz2: 1    1    1    0    1    1    1
+  ...
+
+  Each number is the elevation tier (0=low, 1=mid, 2=high).
+
+--- 2n. Step [10]: Acre Combo Selection ---
+  [10] mRF_SelectBlock (choose actual acre combos)
+
+  For each acre, one of:
+    [SELECT bx=N bz=N] type=NAME fresh: selected=N/N -> combi=N
+    [SELECT bx=N bz=N] type=NAME reuse(1st fallback): selected=N -> combi=N
+    [SELECT bx=N bz=N] type=NAME FALLBACK to BLOCK_COMBI_GRD_S_F_7
+    [SELECT bx=N bz=N] SEA_EXCEPTIONAL -> combi=N
+
+--- 2o. Bit Check ---
+  [BIT CHECK] bit=0xNNN perfect=0x1FF match=YES/NO
+    Missing bits: 0xNNN
+      - SLOPE_LEFT
+      - MUSEUM
+      (etc.)
+
+  If match=NO, the attempt is discarded and a new one starts.
+
+================================================================================
+SECTION 3: GENERATION COMPLETE
+================================================================================
+
+  ================================================================
+  GENERATION COMPLETE after N attempt(s)
+  Total RANDOM() calls so far: N
+  RNG state: 0xXXXXXXXX
+  ================================================================
+
+  (FG grid dump will follow after FG data copy in m_field_make.c)
+
+================================================================================
+SECTION 4: COMBI TABLE
+================================================================================
+
+  --- FINAL COMBI TABLE ---
+       bx0    bx1    bx2    bx3    bx4    bx5    bx6
+  bz0: NNN/h0 NNN/h0 NNN/h0 NNN/h0 NNN/h0 NNN/h0 NNN/h0
+  ...
+
+  Each cell shows: combination_type / height
+  combination_type is the index into data_combi_table[]
+  height is the elevation tier (0, 1, or 2)
+
+================================================================================
+SECTION 5: FINAL BLOCK TYPE GRID
+================================================================================
+
+  --- block_types (final) ---
+       bx0          bx1          bx2          ...
+  bz0: BORDER_TL    BORDER_TOP   ...
+  bz1: TUNNEL_L     TRACKS_SHOP  TRACKS_DUMP  STATION ...
+  bz2: BORDER_L     FLAT         FLAT         PLAYER_HOUSE ...
+  ...
+
+  The complete 7x10 grid with all buildings placed.
+
+================================================================================
+SECTION 6: FG GRID DUMP
+================================================================================
+
+Written by: tglog_dump_fg_grid() → tglog_dump_fg_after_copy()
+
+  --- FINAL FG GRID (all 30 playable acres) ---
+    Acre bx=1 bz=1 (fg[0][0]):
+      [ux, uz] = 0xNNNN (STRUCTURE: +N)
+      [ux, uz] = 0xNNNN (DUMMY/SPECIAL)
+    (no structures or doors)
+
+  Only non-trivial items are logged (structures, dummies, doors).
+  Trees, flowers, and empty tiles are omitted for brevity.
+
+================================================================================
+SECTION 7: END OF TOWN GENERATION LOG
+================================================================================
+
+  ========================================================
+  END OF TOWN GENERATION LOG
+  Total RANDOM() calls: N
+  Final RNG state: 0xXXXXXXXX
+  ========================================================
+
+================================================================================
+SECTION 8: OBSTACLE GRID (appended by nav_obstacle_init)
+================================================================================
+
+Written by: nav_obstacle_init() in pc_acc_nav.c
+Called from: pc_acc_nav_build_obstacle_grid() hooked in tglog_dump_fg_after_copy()
+
+  === OBSTACLE GRID ===
+  Total blocked: N / 17920
+    Trees/rocks: N
+    Fences:      N
+    Houses:      N  (footprints marked)
+    Structures:  N
+    Elevation:   N
+    Water/cliff: N
+    Other:       N
+
+  --- Villager houses ---
+    NPC house 0: center tile (X,Z) acre (bx,bz)
+    NPC house 1: center tile (X,Z) acre (bx,bz)
+    ...
+
+  --- Player houses ---
+    Player house slot 0: center tile (X,Z) acre (bx,bz)
+    Player house slot 1: center tile (X,Z) acre (bx,bz)
+    Player house slot 2: center tile (X,Z) acre (bx,bz)
+    Player house slot 3: center tile (X,Z) acre (bx,bz)
+
+  Total houses: N
+
+  --- ASCII TOWN MAP ---
+  Legend: .=walkable T=tree F=fence H=house S=structure E=elevation W=water X=other
+  Rows=Z(north to south), Cols=X(west to east). Acre boundaries: |/-
+
+       bx=1              bx=2              ...
+  bz=1 ----------------+----------------+...
+   16: ....T...T..T....|.T....T.........|...
+   17: .................|.................|...
+   ...
+  bz=2 ----------------+----------------+...
+   32: ..T.....HHH......|................|...
+   33: ........HHH......|.....T...T......|...
+   34: ........HHH......|.................|...
+   ...
+
+  The ASCII grid covers tiles 16-95 (X) × 16-111 (Z), which is the
+  playable area (bx 1-5, bz 1-6). Each character represents one tile:
+    . = walkable (no obstacle)
+    T = tree or rock (FG item, type 0x0, blocking)
+    F = fence (FG items 0x0005, 0x0006, 0x0010)
+    H = house footprint (3x3 tiles from save data)
+    S = structure (FG item, type 0x5)
+    E = elevation boundary (cliff edge between different height tiers)
+    W = water or cliff face (BG collision, impassable terrain)
+    X = other FG blocker
+
+  The 17920 total is the full 112×160 grid (7×16 × 10×16). Only the
+  playable subset is shown in the ASCII map. Border and ocean acres
+  are not displayed but are included in the blocked count.
+
+  === END OBSTACLE GRID ===
+
+================================================================================
+WHAT THE DEBUG LOG DOES AND DOES NOT CAPTURE
+================================================================================
+
+CAPTURED:
+  ✓ RNG seed at generation start
+  ✓ RNG state at each retry attempt
+  ✓ Total RANDOM() calls
+  ✓ Stepmode (2-tier vs 3-tier) and which variant was selected
+  ✓ Every cliff trace step and success/failure
+  ✓ Every river trace step and success/failure
+  ✓ Cliff+river retry count
+  ✓ Bridge placement decisions (which river block, upper/lower)
+  ✓ Slope placement decisions (which cliff block, left/right)
+  ✓ All building positions (shop, post office, shrine, police, museum,
+    able sisters, dock, pool)
+  ✓ Height/elevation per acre
+  ✓ Acre combo selection (which visual variant each acre got)
+  ✓ Perfect bit check (which features succeeded/failed)
+  ✓ Number of outer retry attempts
+  ✓ Final combi table with combination_type and height
+  ✓ Final block type grid (all 70 acres)
+  ✓ FG grid structures and dummy items (per acre)
+  ✓ Complete obstacle grid with all blocked tiles classified
+
+NOT CAPTURED (would require additional instrumentation):
+  ✗ Individual RANDOM() call values (only count is tracked)
+  ✗ Tree-to-fruit-tree conversion decisions
+  ✗ Tree-to-cedar conversion decisions
+  ✗ Tree pull (removal) decisions
+  ✗ Villager assignment to houses
+  ✗ NPC move-in decisions
+  ✗ Item placement within FG templates (these are ROM data, not generated)
+  ✗ Island FG data
+  ✗ Flower/weed positions (part of FG template, not logged individually)
+
+================================================================================
+END OF DOCUMENT
+================================================================================

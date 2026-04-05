@@ -12,6 +12,10 @@ void sqrand(u32 seed){
     __qrand_idum = seed;
 }
 
+u32 qrand_get_seed(void){
+    return __qrand_idum;
+}
+
 float fqrand(void){
     __qrand_idum = __qrand_idum * 0x19660D + 0x3C6EF35F;
     __qrand_itemp = __qrand_idum >> 9 | 0x3F800000;

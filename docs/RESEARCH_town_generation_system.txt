@@ -1,0 +1,670 @@
+================================================================================
+RESEARCH: Complete Town Generation System
+================================================================================
+Date: 2026-04-04
+Source: m_random_field_ovl.c, m_random_field.c, m_field_make.c, qrand.c
+
+This document describes every aspect of how Animal Crossing GC generates a new
+town, from seed to finished acre grid. Nothing is omitted.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1.  RNG System (Seed & Algorithm)
+2.  Generation Entry Point & Retry Loop
+3.  Stepmode Selection (2-Tier vs 3-Tier)
+4.  Base Template Layout
+5.  Cliff Tracing Algorithm (2-Tier)
+6.  River Tracing Algorithm (2-Tier)
+7.  River-Cliff Merge (Waterfalls)
+8.  Pre-Built 3-Tier Layouts
+9.  Beach Row Setup (bz=6)
+10. Bridge Placement
+11. Slope Placement
+12. Building Placement (All 8+ Buildings)
+13. Pool/Lake Placement
+14. Sea Block Bridge Fallback
+15. Height/Elevation Calculation
+16. Acre Combo Selection (Visual Variants)
+17. The Perfect Bit Validation System
+18. FG Data Initialization (Trees, Flowers, Items)
+19. Combi Table & Data Combi Table Structures
+20. Hardcoded Constraints Summary
+21. Failure Causes & Retry Behavior
+
+================================================================================
+1. RNG SYSTEM (SEED & ALGORITHM)
+================================================================================
+
+Files: src/static/libc64/qrand.c, include/libc64/qrand.h, include/sys_math.h
+
+Algorithm: Linear Congruential Generator (LCG)
+  State:      single u32 variable __qrand_idum (initialized to 1)
+  Formula:    __qrand_idum = __qrand_idum * 0x19660D + 0x3C6EF35F
+  Multiplier: 0x19660D  (26,125,581 decimal)
+  Increment:  0x3C6EF35F (1,013,904,223 decimal)
+  Period:     2^32 (full 32-bit cycle)
+
+Functions:
+  qrand()    — advances state, returns raw u32
+  fqrand()   — calls qrand(), extracts bits 9-31, returns float in [0.0, 1.0)
+               formula: (float)(qrand() >> 9) / (float)0x400000
+  sqrand(s)  — sets __qrand_idum = s (seed the generator)
+
+Macro:
+  RANDOM(n)  — (int)(fqrand() * (float)(n))  →  returns integer in [0, n)
+
+Seeding:
+  init_rnd() in sys_math.c calls sqrand(osGetCount())
+  osGetCount() returns the hardware cycle counter at boot time
+  On PC port, this is the SDL tick count or equivalent — effectively random
+
+The wrapper mRF_GetRandom(max) calls RANDOM(max) and on PC builds increments
+s_rng_call_count for debug logging.
+
+Mathematical note: Because fqrand() discards the lower 9 bits, only 23 bits of
+the 32-bit state contribute to each random number. For RANDOM(n) where n is
+small (e.g., <100), the effective randomness is more than sufficient. For large
+n values, there can be slight non-uniformity, but this doesn't meaningfully
+affect town generation.
+
+================================================================================
+2. GENERATION ENTRY POINT & RETRY LOOP
+================================================================================
+
+Entry: mRF_MakeRandomField_ovl() in m_random_field_ovl.c
+Called from: mFM_InitFgCombiSaveData() in m_field_make.c
+
+The function receives:
+  - combi_table: output array of mFM_combination_c[70] (7x10 grid)
+  - combi_count: total number of entries in data_combi_table
+  - combo_info_p: pointer to data_combi_table[] (the lookup table)
+  - block_type_p, block_kind_p: output arrays for runtime block classification
+
+Pipeline:
+  1. Compute stepmode (2-tier or 3-tier)
+  2. Compute perfect_bit (all 9 required bits)
+  3. RETRY LOOP:
+     a. Reset bit = 0
+     b. Steps 1-10 (see below)
+     c. Check: (bit & perfect_bit) == perfect_bit?
+        YES → break, generation complete
+        NO  → discard everything, retry from step (a)
+  4. After loop: copy height data, select acre combos
+
+Steps within each attempt (in order):
+  [1] mRF_MakeBaseLandform       — cliff + river trace (or pick 3-tier layout)
+  [2] mRF_MakeFlatPlaceInfomation — categorize flat blocks by river-side
+  [3] mRF_SetMarinBlock           — convert bz=6 to beach types
+  [4] mRF_SetBridgeAndSlopeBlock  — place bridges + slopes
+  [5] mRF_SetNeedleworkAndWharfBlock — Able Sisters + Dock on beach
+  [6] mRF_SetUniqueFlatBlock      — Shrine, Police, Museum
+  [7] mRF_SetUniqueRailBlock      — Shop + Post Office on tracks row
+  [8] mRF_SetPoolBlock            — lake on a river block
+  [9] mRF_SetSeaBlockWithBridgeRiver — fallback lower bridge if needed
+  [10] mRF_MakeBaseHeightTable + mRF_SelectBlock — elevation + combo selection
+
+================================================================================
+3. STEPMODE SELECTION (2-TIER vs 3-TIER)
+================================================================================
+
+mRF_GetRandomStepMode():  return mRF_GetRandom(100) < 15;
+
+  85% chance → mRF_STEPMODE_TWO  (0) — 1 cliff line, 2 elevation tiers
+  15% chance → mRF_STEPMODE_THREE (1) — 2 cliff lines, 3 elevation tiers
+
+Stepmode is chosen ONCE before the retry loop and does NOT change between
+retries. A 3-tier town always stays 3-tier.
+
+================================================================================
+4. BASE TEMPLATE LAYOUT
+================================================================================
+
+All towns start from l_base_blocks[] (defined at line ~286):
+
+  bz0: BORDER_TL   BORDER_TOP  BORDER_TOP  BORDER_TOP   BORDER_TOP  BORDER_TOP  BORDER_TR
+  bz1: TUNNEL_L     DUMP        DUMP        STATION      DUMP        DUMP        TUNNEL_R
+  bz2: BORDER_L     FLAT        FLAT        PLAYER_HOUSE FLAT        FLAT        BORDER_R
+  bz3: BORDER_L     FLAT        FLAT        FLAT         FLAT        FLAT        BORDER_R
+  bz4: BORDER_L     FLAT        FLAT        FLAT         FLAT        FLAT        BORDER_R
+  bz5: BORDER_L     FLAT        FLAT        FLAT         FLAT        FLAT        BORDER_R
+  bz6: BORDER_L     FLAT        FLAT        FLAT         FLAT        FLAT        BORDER_R
+  bz7: SEA_EX       SEA_EX      SEA_EX      SEA_EX       SEA_EX      SEA_EX      SEA_EX
+  bz8: OCEAN        OCEAN       OCEAN       OCEAN_6      ISLAND_L    ISLAND_R    OCEAN_6
+  bz9: OCEAN        OCEAN       OCEAN       OCEAN_7      OCEAN_7     OCEAN_7     OCEAN_7
+
+Key observations:
+  - bx=0 and bx=6: always border (impassable)
+  - bz=0: always border top row
+  - bz=1: tracks row — STATION at bx=3, DUMP at bx=1,2,4,5 (overwritten later)
+  - bz=2: PLAYER_HOUSE at bx=3 (your house acre)
+  - bz=2 through bz=6 (bx 1-5): the 25 playable acres, initially all FLAT
+  - bz=7: SEA_EXCEPTIONAL (coast visual matching)
+  - bz=8-9: ocean + island
+
+The cliff and river traces modify the FLAT blocks. Buildings replace FLAT and
+DUMP blocks. Everything else is fixed.
+
+================================================================================
+5. CLIFF TRACING ALGORITHM (2-TIER ONLY)
+================================================================================
+
+Function: mRF_DecideBaseCliff()
+
+The cliff is a continuous line that runs roughly west-to-east across the town,
+dividing it into upper and lower halves.
+
+Step 1 — Pick starting row:
+  start_z = RANDOM(4)  →  bz = start_z + 2  →  bz in {2, 3, 4, 5}
+
+Step 2 — Pick starting cliff type from l_cliff_start_table[start_z]:
+  start_z=0 (bz=2): CLIFF_HORIZONTAL or CLIFF_TOP_LEFT_CORNER
+  start_z=1 (bz=3): CLIFF_HORIZONTAL or CLIFF_TOP_LEFT_CORNER
+  start_z=2 (bz=4): CLIFF_HORIZONTAL, CLIFF_BOTTOM_RIGHT_CORNER, or CLIFF_TOP_LEFT_CORNER
+  start_z=3 (bz=5): CLIFF_HORIZONTAL or CLIFF_BOTTOM_RIGHT_CORNER
+
+Step 3 — Place at bx=1, set bx=0 to BORDER_CLIFF_LEFT_TRANSITION
+
+Step 4 — Recursive trace via mRF_TraceCliffBlock():
+  Each cliff type has a DIRECTION (where the next block goes):
+    CLIFF_HORIZONTAL           → EAST  (bx+1)
+    CLIFF_BOTTOM_RIGHT_CORNER  → NORTH (bz-1)
+    CLIFF_VERTICAL_RIGHT       → NORTH (bz-1)
+    CLIFF_TOP_RIGHT_CORNER     → EAST  (bx+1)
+    CLIFF_TOP_LEFT_CORNER      → SOUTH (bz+1)
+    CLIFF_VERTICAL_LEFT        → SOUTH (bz+1)
+    CLIFF_BOTTOM_LEFT_CORNER   → EAST  (bx+1)
+
+  Each cliff type has POSSIBLE NEXT TYPES (l_cliff_next_data[]):
+    HORIZONTAL → {HORIZONTAL, BOTTOM_RIGHT, TOP_LEFT}
+    BOTTOM_RIGHT → {VERTICAL_RIGHT}
+    VERTICAL_RIGHT → {TOP_RIGHT}
+    TOP_RIGHT → {HORIZONTAL, TOP_LEFT}
+    TOP_LEFT → {VERTICAL_LEFT}
+    VERTICAL_LEFT → {BOTTOM_LEFT}
+    BOTTOM_LEFT → {HORIZONTAL, BOTTOM_RIGHT}
+
+  One of the possible next types is chosen randomly.
+
+  Constraints during trace:
+    - Next block must currently be FLAT (can't overwrite non-flat)
+    - Cannot overwrite PLAYER_HOUSE (bx=3, bz=2)
+    - Must stay within bx 1-5, bz 2-5
+
+Step 5 — mRF_SetEndCliffBlock(): terminates cliff at right wall
+  Sets bx=6 to BORDER_CLIFF_RIGHT_TRANSITION
+
+Step 6 — mRF_LastCheckCliff(): validates the path
+  - Must reach bx > 5 (fully crossed the map)
+  - Must end on a different bz than it started (not a straight horizontal line)
+  If validation fails, the entire cliff is discarded and retried.
+
+The cliff effectively creates a zigzag line from left to right, with the path
+wandering north and south as it goes. The shape determines which acres are
+"upper tier" and which are "lower tier."
+
+================================================================================
+6. RIVER TRACING ALGORITHM (2-TIER ONLY)
+================================================================================
+
+The river flows north-to-south, entering from the top border and exiting through
+the beach into the ocean. It is traced AFTER the cliff, and must cross the cliff
+(creating a waterfall).
+
+--- Part 1: mRF_TraceRiverPart1() ---
+
+Step 1 — Pick start column:
+  Candidates: {1, 2, 4, 5} — NEVER bx=3 (avoids station/player house column)
+  Random selection from these 4 options.
+
+Step 2 — Pick start type from l_river_next_data[0]:
+  Options: RIVER_SOUTH, RIVER_SOUTH_EAST, or RIVER_SOUTH_WEST
+
+Step 3 — Place entry blocks:
+  bx=start, bz=0 → BORDER_CLIFF_RIVER (border entry point)
+  bx=start, bz=1 → TRACKS_RIVER (river through tracks row)
+
+Step 4 — First playable block at bz=2
+
+Step 5 — If river hits a cliff block, compatibility is checked via
+  mRF_CheckRiverCrossCliff(). Not all river/cliff combos are valid.
+
+--- Part 2: mRF_TraceRiverPart2() (recursive) ---
+
+Each river type has a DIRECTION:
+  RIVER_SOUTH      → SOUTH (bz+1)
+  RIVER_SOUTH_EAST → EAST  (bx+1)
+  RIVER_SOUTH_WEST → WEST  (bx-1)
+  RIVER_EAST       → EAST  (bx+1)
+  RIVER_EAST_SOUTH → SOUTH (bz+1)
+  RIVER_WEST       → WEST  (bx-1)
+  RIVER_WEST_SOUTH → SOUTH (bz+1)
+
+Each river type has POSSIBLE NEXT TYPES (l_river_next_data[]):
+  SOUTH      → {SOUTH, SOUTH_EAST, SOUTH_WEST}
+  SOUTH_EAST → {EAST}
+  SOUTH_WEST → {WEST}
+  EAST       → {EAST_SOUTH}
+  EAST_SOUTH → {SOUTH, SOUTH_EAST}
+  WEST       → {WEST_SOUTH}
+  WEST_SOUTH → {SOUTH, SOUTH_WEST}
+
+When the river reaches bz=6, it forces RIVER_SOUTH (enters beach straight).
+
+--- Validation: mRF_LastCheckRiver() ---
+  - River must reach z > 6 (entered the ocean)
+  - River must cross bx=3 at least once (mRF_GetCenterCrossZoneRiverCount)
+  - River cannot end at bx=1 or bx=5
+
+If any validation fails, the cliff+river pair is discarded and both are retried.
+
+River shape: The river meanders south with occasional east/west bends. It
+always crosses the cliff (creating a waterfall), always crosses the center
+column, and always exits through the beach.
+
+================================================================================
+7. RIVER-CLIFF MERGE (WATERFALLS)
+================================================================================
+
+Function: mRF_DecideRiverAlbuminCliff()
+
+After both cliff and river are traced independently, they are merged. Where the
+river path overlaps a cliff block, the cliff block becomes a waterfall composite
+type. Examples:
+
+  RIVER_SOUTH crossing CLIFF_HORIZONTAL → WATERFALL_STRAIGHT_CLIFF_HORIZONTAL
+  RIVER_SOUTH_EAST crossing CLIFF_HORIZONTAL → WATERFALL_SE_CLIFF_HORIZONTAL
+  RIVER_SOUTH_WEST crossing CLIFF_VERTICAL_LEFT → WATERFALL_SW_CLIFF_VERT_LEFT
+
+Not all combinations are valid — invalid combos cause the generation to fail
+and retry. The merge function walks the cliff data and river data simultaneously,
+replacing cliff blocks where the river overlaps.
+
+================================================================================
+8. PRE-BUILT 3-TIER LAYOUTS
+================================================================================
+
+When stepmode is THREE (15% chance), NO procedural cliff/river tracing occurs.
+Instead, one of 10 hardcoded layouts is selected:
+
+  l_mRF_step3_blocks3, blocks7, blocks7R, blocks8, blocksB, blocksBR,
+  blocksE, blocksER, blocksF, blocksFR
+
+Selection: index = RANDOM(10)
+
+Each layout is a complete 7x10 grid specifying every block type. All share:
+  - Two cliff lines (creating 3 elevation tiers)
+  - Waterfalls where river crosses each cliff
+  - Station at bx=3, bz=1
+  - Player house at bx=3, bz=2
+  - River enters from border and flows south through both cliff lines
+
+The "R" suffix variants are mirrored (river on right side vs left side).
+
+Differences between variants:
+  - Which column the river enters (bx=1 or bx=4-5)
+  - Where cliff lines bend
+  - Whether river goes left-to-center or center-to-right between tiers
+
+After the layout is selected, steps 2-10 run normally (building placement,
+bridge placement, etc.). The only difference is step 1 is a table lookup
+instead of procedural generation.
+
+================================================================================
+9. BEACH ROW SETUP (bz=6)
+================================================================================
+
+Function: mRF_SetMarinBlock()
+
+Simple conversion of the bottom playable row:
+  - All FLAT blocks at bz=6 (bx 1-5) → BEACH
+  - All RIVER_SOUTH blocks at bz=6 → BEACH_RIVER
+  - bx=0, bz=6 → BORDER_CLIFF_OCEAN_LEFT
+  - bx=6, bz=6 → BORDER_CLIFF_OCEAN_RIGHT
+
+The beach row always has exactly one BEACH_RIVER block (where the river exits).
+
+================================================================================
+10. BRIDGE PLACEMENT
+================================================================================
+
+Function: mRF_SetBridgeBlock()
+
+Step 1 — Decide whether to attempt a lower bridge:
+  rng = RANDOM(10) & 1  →  50/50 chance
+  Lower bridge is only attempted if stepmode is TWO-TIER AND rng != 0
+
+Step 2 — Find where river crosses cliff:
+  mRF_GetRiverCrossCliffInfo() returns the bx,bz of the crossing
+
+Step 3 — Upper bridge (above cliff crossing):
+  Count all "pure" river blocks above the crossing point
+  Pick one randomly, convert to bridge variant:
+    RIVER_SOUTH → RIVER_SOUTH_BRIDGE
+    RIVER_EAST  → RIVER_EAST_BRIDGE
+    etc.
+  Sets BRIDGE_UPPER bit
+
+Step 4 — Lower bridge (below cliff crossing):
+  Same as upper, but only for river blocks below the crossing
+  Only attempted when conditions from Step 1 are met
+  Sets BRIDGE_LOWER bit
+
+If no pure river blocks exist on one side, that bridge is skipped (bit not set).
+
+================================================================================
+11. SLOPE PLACEMENT
+================================================================================
+
+Function: mRF_SetSlopeBlock()
+
+Slopes allow the player to walk between elevation tiers. Two slopes are placed:
+one on each side of the river.
+
+Step 1 — Trace the cliff line, categorize each cliff block as left-of-river
+  or right-of-river
+
+Step 2 — Left slope:
+  Count cliff blocks on the left side of the river
+  Pick one randomly, convert to slope variant:
+    CLIFF_HORIZONTAL → SLOPE_HORIZONTAL
+    CLIFF_BOTTOM_RIGHT_CORNER → SLOPE_BOTTOM_RIGHT_CORNER
+    etc.
+  Sets SLOPE_LEFT bit
+
+Step 3 — Right slope:
+  Same for the right side of the river
+  Sets SLOPE_RIGHT bit
+
+================================================================================
+12. BUILDING PLACEMENT (ALL BUILDINGS)
+================================================================================
+
+--- Dock (Port) ---
+Function: mRF_SetNeedleworkAndWharfBlock()
+Position: ALWAYS bx=5, bz=6 (hardcoded)
+Converts BEACH to PORT. If bx=5 bz=6 is not BEACH, generation fails.
+
+--- Able Sisters (Needlework Shop) ---
+Same function as Dock.
+Picks random index among remaining BEACH blocks at bz=6.
+Placed at one of {bx=1,2,3,4} (whichever beach blocks remain).
+Sets NEEDLEWORK bit.
+
+--- Shrine (Wishing Well) ---
+Function: mRF_SetUniqueFlatBlock()
+Random side: side0 = RANDOM(100) & 1  (50/50 left or right of river)
+Placed on a FLAT block that is BELOW the cliff on side0.
+Falls back to opposite side (side1) if no space.
+Sets SHRINE bit.
+
+--- Police Box ---
+Same function as Shrine.
+Placed on OPPOSITE side from Shrine (side1).
+Falls back to same side if needed.
+Sets POLICE bit.
+
+--- Museum ---
+Same function.
+Placed on EITHER side of river, below cliff.
+Sets MUSEUM bit.
+
+--- Nook's Store (Shop) ---
+Function: mRF_SetUniqueRailBlock()
+50/50 side: RANDOM(1000) & 1
+Left side: randomly bx=1 or bx=2 (among TRACKS_DUMP blocks)
+Right side: randomly bx=4 or bx=5
+Converts DUMP block to TRACKS_SHOP.
+
+--- Post Office ---
+Same function, placed on OPPOSITE side from Shop.
+Converts DUMP block to TRACKS_POST_OFFICE.
+
+--- Train Station ---
+ALWAYS bx=3, bz=1. Hardcoded in the base template. Never moved.
+
+--- Dump ---
+Remains at whichever DUMP blocks weren't claimed by Shop/Post Office.
+Converts to TRACKS_DUMP type.
+
+--- Player House ---
+ALWAYS bx=3, bz=2. Hardcoded in the base template. Never moved.
+
+================================================================================
+13. POOL/LAKE PLACEMENT
+================================================================================
+
+Function: mRF_SetPoolBlock()
+
+Step 1 — Count all "pure" river blocks (RIVER_SOUTH through RIVER_WEST_SOUTH,
+  excluding bridges, waterfalls, and composite types)
+
+Step 2 — Pick one randomly
+
+Step 3 — Convert to pool variant:
+  RIVER_SOUTH → POOL_SOUTH
+  RIVER_EAST  → POOL_EAST
+  etc.
+  Sets POOL bit
+
+The pool/lake is a single acre that replaces a regular river acre. It appears
+in-game as a wider body of water.
+
+================================================================================
+14. SEA BLOCK BRIDGE FALLBACK
+================================================================================
+
+Function: mRF_SetSeaBlockWithBridgeRiver()
+
+If the BRIDGE_LOWER bit was NOT set during normal bridge placement:
+  - Find the BEACH_RIVER block at bz=6
+  - Convert it to BEACH_RIVER_BRIDGE
+
+This guarantees there is ALWAYS a lower bridge — if the normal placement
+didn't create one (due to RNG or 3-tier layout), the beach-river crossing
+becomes one automatically.
+
+Returns the BRIDGE_LOWER bit.
+
+================================================================================
+15. HEIGHT/ELEVATION CALCULATION
+================================================================================
+
+Function: mRF_MakeBaseHeightTable() → mRF_GetBlockBase()
+
+For each column (bx), scans from bottom (bz=9) to top (bz=0):
+  - Starts at height mRF_FIELD_STEP1 (0)
+  - Every cliff block with a horizontal component increments height:
+    CLIFF_HORIZONTAL, TOP_RIGHT_CORNER, TOP_LEFT_CORNER,
+    and BORDER_CLIFF_TRANSITION types all trigger an increment
+  - Height values: STEP1=0, STEP2=1, STEP3=2
+
+Result: blocks below the cliff are elevation 0, blocks above are elevation 1,
+blocks above a second cliff (3-tier) are elevation 2.
+
+Heights are stored in combi_table[].height (2-bit field).
+
+In-game effect: higher-elevation acres have raised terrain. Players need slopes
+to move between tiers. The cliff face itself is impassable except at slopes.
+
+================================================================================
+16. ACRE COMBO SELECTION (VISUAL VARIANTS)
+================================================================================
+
+Function: mRF_SelectBlock()
+
+After the block type grid is finalized, each acre needs a specific visual
+variant. The data_combi_table[] contains hundreds of entries, each mapping:
+  (bg_model_id, fg_data_id, block_type)
+
+For each block in the 7x10 grid:
+
+1. SEA_EXCEPTIONAL special case (bz=7):
+   Looks at the block directly above (bz=6), gets its BG name, maps through
+   mRF_GetExceptionalSeaBgDownBgName() to find the matching ocean variant.
+
+2. Normal blocks:
+   a. Count entries in data_combi_table[] matching this block's type that
+      haven't been used yet ("fresh" variants)
+   b. If fresh variants exist → pick one randomly, mark as used
+   c. If no fresh variants → allow reuse, pick from all matching entries
+   d. If still nothing matches → fallback to BLOCK_COMBI_GRD_S_F_7 (generic)
+
+3. The l_use_data[] array tracks which combo entries are assigned, preventing
+   the same visual variant from appearing twice when possible.
+
+NOTE: There is a known bug where mRF_BgName2RandomConbiNo() calls RANDOM(0)
+instead of RANDOM(count), always selecting index 0. Fixed under BUGFIXES flag.
+
+================================================================================
+17. THE PERFECT BIT VALIDATION SYSTEM
+================================================================================
+
+Function: mRF_MakePerfectBit()
+
+Computes bitmask: 0x1FF (all 9 bits set)
+
+The 9 required bits:
+  Bit 0: SLOPE_LEFT      — left-side slope placed on cliff
+  Bit 1: SLOPE_RIGHT     — right-side slope placed on cliff
+  Bit 2: BRIDGE_UPPER    — bridge above cliff-river crossing
+  Bit 3: BRIDGE_LOWER    — bridge below cliff-river crossing (or beach bridge)
+  Bit 4: SHRINE          — Wishing Well placed
+  Bit 5: POLICE          — Police Box placed
+  Bit 6: MUSEUM          — Museum placed
+  Bit 7: POOL            — Lake/pool placed
+  Bit 8: NEEDLEWORK      — Able Sisters placed
+
+The generation loop continues retrying until:
+  (bit & perfect_bit) == perfect_bit
+
+ALL 9 features must be successfully placed. If any single one fails, the
+entire attempt is discarded and starts over from scratch.
+
+================================================================================
+18. FG DATA INITIALIZATION (TREES, FLOWERS, ITEMS)
+================================================================================
+
+After generation succeeds, in mFM_InitFgCombiSaveData():
+
+Step 1 — Load FG data resource from ROM/ARAM (binary blob containing all FG
+  templates — the pre-designed item layouts for each acre type)
+
+Step 2 — Sort into sorted_fg_data_list[] by fg_id
+
+Step 3 — For each playable acre (bz 1-6, bx 1-5):
+  a. Look up fg_id from data_combi_table[combi_table[bz][bx].combination_type].fg_id
+  b. Find matching FG template in sorted list
+  c. Copy 16x16 item grid to Save_Get(fg[bz-1][bx-1])
+
+The FG templates are pre-designed and contain:
+  - Trees (saplings, grown trees, cedar trees, fruit trees)
+  - Flowers
+  - Weeds
+  - Building structure marker items (DUMMY_* items for building positions)
+  - Empty spaces
+
+Tree replacement happens AFTER FG copy:
+  - mAGrw_ChangeTree2FruitTree(): converts some trees to fruit trees
+  - mAGrw_ChangeTree2Cedar(): converts some trees to cedar trees
+  - mSDI_PullTree() / PullTreeUnderPlayerBlock(): removes excess trees
+
+The FG data determines the initial state of every tile in every acre. When the
+player first enters their town, this is what they see.
+
+================================================================================
+19. COMBI TABLE & DATA COMBI TABLE STRUCTURES
+================================================================================
+
+--- mFM_combination_c (combi_table entry, 2 bytes) ---
+  combination_type: 14 bits — index into data_combi_table[]
+  height: 2 bits — elevation (0=STEP1, 1=STEP2, 2=STEP3)
+
+The combi_table is a flat array of 70 entries (7 columns × 10 rows) stored in
+save data at Save_Get(combi_table[bz][bx]).
+
+--- mFM_combo_info_c (data_combi_table entry, 6 bytes) ---
+  bg_id: background model/texture ID (determines terrain appearance)
+  fg_id: foreground item data ID (determines tree/flower/item layout)
+  type:  block type enum (FLAT, CLIFF_HORIZONTAL, RIVER_SOUTH, etc.)
+
+data_combi_table[] is defined in src/data/combi/data_combi.c. It contains
+hundreds of entries. Multiple entries share the same type but have different
+bg/fg variants, providing visual variety — e.g., there are many different
+"FLAT" acre variants with different tree and flower arrangements.
+
+The combo selection system (section 16) picks which specific variant each
+acre uses. Two towns with identical block type layouts can look different
+because they got different visual variants.
+
+================================================================================
+20. HARDCODED CONSTRAINTS SUMMARY
+================================================================================
+
+Position constraints:
+  Station         — always bx=3, bz=1
+  Player House    — always bx=3, bz=2
+  Dock/Port       — always bx=5, bz=6
+  Tracks row      — always bz=1; tunnels at bx=0 and bx=6
+  Beach row       — always bz=6
+  Ocean rows      — bz=7-9 fixed layout
+  Island          — always bx=4-5, bz=8
+
+River constraints:
+  Start column    — never bx=3 (from {1, 2, 4, 5})
+  End column      — cannot end at bx=1 or bx=5
+  Center crossing — must cross bx=3 at least once
+
+Cliff constraints:
+  Vertical range  — bz 2-5 only (never enters beach or tracks)
+  Horizontal span — must cross from bx=1 to bx=5
+  End Z           — must differ from start Z (no pure horizontal line)
+  Cannot overwrite PLAYER_HOUSE at bx=3, bz=2
+
+Building constraints:
+  Shop            — left (bx 1-2) or right (bx 4-5) of tracks, 50/50
+  Post Office     — opposite side from Shop
+  Shrine          — below cliff, random side of river
+  Police          — below cliff, opposite side from Shrine
+  Museum          — below cliff, either side
+  Able Sisters    — beach row (bz=6), random position among remaining beach
+
+3-tier constraint:
+  15% chance, selected once, does not change on retry
+
+================================================================================
+21. FAILURE CAUSES & RETRY BEHAVIOR
+================================================================================
+
+--- Inner retry (2-tier cliff+river only) ---
+mRF_MakeBaseLandformStep2 loops until both cliff and river traces succeed.
+Causes of cliff failure:
+  - Path blocked (non-FLAT in the way)
+  - Hit PLAYER_HOUSE
+  - Out of bounds (bz < 2 or bz > 5)
+  - Validation: didn't reach east wall or same Z start/end
+
+Causes of river failure:
+  - Incompatible river/cliff crossing
+  - Didn't cross bx=3
+  - Ended at bx=1 or bx=5
+  - Didn't reach ocean
+
+--- Outer retry (all modes) ---
+Entire generation restarted. Causes:
+  - Not enough FLAT blocks below cliff for Shrine + Police + Museum (need 3)
+  - No pure river blocks for Pool
+  - Dock placement failed (bx=5 bz=6 not BEACH)
+  - Bridge placement failed (no river blocks on required side)
+  - Slope placement failed (no cliff blocks on required side)
+  - Able Sisters placement failed (no BEACH blocks remaining)
+
+Typical retry count: 1-5 attempts for 2-tier, potentially more for 3-tier
+(since the fixed layouts leave less flexibility for building placement).
+
+The debug log tracks every attempt with full state, so failed attempts are
+visible in town_generation_debug.txt.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

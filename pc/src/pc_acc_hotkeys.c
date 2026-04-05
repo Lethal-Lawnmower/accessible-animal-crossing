@@ -27,6 +27,7 @@
 #include "m_item_name.h"
 #include "m_mail.h"
 #include "m_font.h"
+#include "m_event.h"
 #include "game.h"
 #include "lb_rtc.h"
 
@@ -38,6 +39,7 @@ static u8 s_prev_t = 0;
 static u8 s_prev_g = 0;
 static u8 s_prev_m = 0;
 static u8 s_prev_f5 = 0;
+static u8 s_prev_f9 = 0;
 
 
 /* Track scene changes for auto-announcement */
@@ -262,6 +264,20 @@ void pc_acc_hotkeys_update(void) {
             pc_acc_speak_interrupt(scene_name(scene));
         }
     }
+
+    /* F9: Skip prologue (debug — completes all intro/tutorial flags) */
+    u8 f9_key = keys[SDL_SCANCODE_F9];
+    if (f9_key && !s_prev_f9) {
+        if (mEv_CheckFirstIntro() || mEv_CheckFirstJob()) {
+            /* Clear all prologue event flags for the current player */
+            int player_no = Common_Get(player_no);
+            mEv_ClearPersonalEventFlag(player_no);
+            pc_acc_speak_interrupt("Prologue skipped");
+        } else {
+            pc_acc_speak_interrupt("Not in prologue");
+        }
+    }
+    s_prev_f9 = f9_key;
 
     s_prev_t = t_key;
     s_prev_g = g_key;

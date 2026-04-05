@@ -3,6 +3,296 @@
 
 #include "m_common_data.h"
 
+#ifdef TARGET_PC
+#include "libc64/qrand.h"
+#include "m_field_make.h"
+#include "m_name_table.h"
+#include "pc_accessibility.h"
+#include "pc_acc_nav.h"
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+#include <stdlib.h>
+
+/* ======================================================================== */
+/* Town Generation Debug Logging                                            */
+/* Writes comprehensive generation data to town_generation_debug.txt        */
+/* ======================================================================== */
+
+static FILE* s_tglog = NULL;
+static int s_rng_call_count = 0;
+static int s_generation_number = 0;
+
+static int tglog_count_previous(void) {
+    int count = 0;
+    char line[256];
+    FILE* f = fopen("town_generation_debug.txt", "r");
+    if (!f) return 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "##  GENERATION ATTEMPT #", 24) == 0) {
+            int n = atoi(line + 24);
+            if (n > count) count = n;
+        }
+    }
+    fclose(f);
+    return count;
+}
+
+static void tglog_open(void) {
+    if (s_tglog) fclose(s_tglog);
+    s_generation_number = tglog_count_previous() + 1;
+    s_tglog = fopen("town_generation_debug.txt", "a");
+    s_rng_call_count = 0;
+    if (s_tglog) {
+        fprintf(s_tglog, "\n\n");
+        fprintf(s_tglog, "########################################################\n");
+        fprintf(s_tglog, "##  GENERATION ATTEMPT #%d\n", s_generation_number);
+        fprintf(s_tglog, "########################################################\n");
+        fprintf(s_tglog, "ANIMAL CROSSING GC — TOWN GENERATION DEBUG LOG\n");
+        fprintf(s_tglog, "========================================================\n\n");
+        fprintf(s_tglog, "RNG seed at generation start: 0x%08X\n\n", qrand_get_seed());
+    }
+}
+
+static void tglog_close(void) {
+    if (s_tglog) {
+        fprintf(s_tglog, "\n========================================================\n");
+        fprintf(s_tglog, "END OF TOWN GENERATION LOG\n");
+        fprintf(s_tglog, "Total RANDOM() calls: %d\n", s_rng_call_count);
+        fprintf(s_tglog, "Final RNG state: 0x%08X\n", qrand_get_seed());
+        fprintf(s_tglog, "========================================================\n");
+        fclose(s_tglog);
+        s_tglog = NULL;
+    }
+}
+
+static void tglog(const char* fmt, ...) {
+    if (!s_tglog) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(s_tglog, fmt, ap);
+    va_end(ap);
+    fflush(s_tglog);
+}
+
+static const char* tglog_block_type_name(u8 type) {
+    switch (type) {
+        case mFM_BLOCK_TYPE_FLAT: return "FLAT";
+        case mFM_BLOCK_TYPE_PLAYER_HOUSE: return "PLAYER_HOUSE";
+        case mFM_BLOCK_TYPE_TRACKS_STATION: return "TRACKS_STATION";
+        case mFM_BLOCK_TYPE_TRACKS_SHOP: return "TRACKS_SHOP";
+        case mFM_BLOCK_TYPE_TRACKS_POST_OFFICE: return "TRACKS_POST_OFFICE";
+        case mFM_BLOCK_TYPE_TRACKS_DUMP: return "TRACKS_DUMP";
+        case mFM_BLOCK_TYPE_TRACKS_RIVER: return "TRACKS_RIVER";
+        case mFM_BLOCK_TYPE_SHRINE: return "SHRINE";
+        case mFM_BLOCK_TYPE_POLICE_BOX: return "POLICE_BOX";
+        case mFM_BLOCK_TYPE_MUSEUM: return "MUSEUM";
+        case mFM_BLOCK_TYPE_NEEDLEWORK: return "NEEDLEWORK";
+        case mFM_BLOCK_TYPE_PORT: return "PORT";
+        case mFM_BLOCK_TYPE_BEACH: return "BEACH";
+        case mFM_BLOCK_TYPE_BEACH_RIVER: return "BEACH_RIVER";
+        case mFM_BLOCK_TYPE_BEACH_RIVER_BRIDGE: return "BEACH_RIVER_BRIDGE";
+        case mFM_BLOCK_TYPE_CLIFF_HORIZONTAL: return "CLIFF_H";
+        case mFM_BLOCK_TYPE_CLIFF_BOTTOM_RIGHT_CORNER: return "CLIFF_BR";
+        case mFM_BLOCK_TYPE_CLIFF_VERTICAL_RIGHT: return "CLIFF_VR";
+        case mFM_BLOCK_TYPE_CLIFF_TOP_RIGHT_CORNER: return "CLIFF_TR";
+        case mFM_BLOCK_TYPE_CLIFF_TOP_LEFT_CORNER: return "CLIFF_TL";
+        case mFM_BLOCK_TYPE_CLIFF_VERTICAL_LEFT: return "CLIFF_VL";
+        case mFM_BLOCK_TYPE_CLIFF_BOTTOM_LEFT_CORNER: return "CLIFF_BL";
+        case mFM_BLOCK_TYPE_RIVER_SOUTH: return "RIVER_S";
+        case mFM_BLOCK_TYPE_RIVER_EAST: return "RIVER_E";
+        case mFM_BLOCK_TYPE_RIVER_WEST: return "RIVER_W";
+        case mFM_BLOCK_TYPE_RIVER_SOUTH_EAST: return "RIVER_SE";
+        case mFM_BLOCK_TYPE_RIVER_EAST_SOUTH: return "RIVER_ES";
+        case mFM_BLOCK_TYPE_RIVER_SOUTH_WEST: return "RIVER_SW";
+        case mFM_BLOCK_TYPE_RIVER_WEST_SOUTH: return "RIVER_WS";
+        case mFM_BLOCK_TYPE_RIVER_SOUTH_BRIDGE: return "RIVER_S_BRIDGE";
+        case mFM_BLOCK_TYPE_RIVER_EAST_BRIDGE: return "RIVER_E_BRIDGE";
+        case mFM_BLOCK_TYPE_RIVER_WEST_BRIDGE: return "RIVER_W_BRIDGE";
+        case mFM_BLOCK_TYPE_SLOPE_HORIZONTAL: return "SLOPE_H";
+        case mFM_BLOCK_TYPE_SLOPE_BOTTOM_RIGHT_CORNER: return "SLOPE_BR";
+        case mFM_BLOCK_TYPE_SLOPE_VERTICAL_RIGHT: return "SLOPE_VR";
+        case mFM_BLOCK_TYPE_SLOPE_TOP_RIGHT_CORNER: return "SLOPE_TR";
+        case mFM_BLOCK_TYPE_SLOPE_TOP_LEFT_CORNER: return "SLOPE_TL";
+        case mFM_BLOCK_TYPE_SLOPE_VERTICAL_LEFT: return "SLOPE_VL";
+        case mFM_BLOCK_TYPE_SLOPE_BOTTOM_LEFT_CORNER: return "SLOPE_BL";
+        case mFM_BLOCK_TYPE_POOL_SOUTH: return "POOL_S";
+        case mFM_BLOCK_TYPE_POOL_EAST: return "POOL_E";
+        case mFM_BLOCK_TYPE_POOL_WEST: return "POOL_W";
+        case mFM_BLOCK_TYPE_POOL_SOUTH_EAST: return "POOL_SE";
+        case mFM_BLOCK_TYPE_POOL_EAST_SOUTH: return "POOL_ES";
+        case mFM_BLOCK_TYPE_POOL_SOUTH_WEST: return "POOL_SW";
+        case mFM_BLOCK_TYPE_POOL_WEST_SOUTH: return "POOL_WS";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_TOP: return "BORDER_TOP";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_LEFT: return "BORDER_LEFT";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_RIGHT: return "BORDER_RIGHT";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_CORNER_TOP_LEFT: return "BORDER_TL";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_CORNER_TOP_RIGHT: return "BORDER_TR";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_LEFT_TUNNEL: return "BORDER_L_TUNNEL";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_RIGHT_TUNNEL: return "BORDER_R_TUNNEL";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_LEFT_TRANSITION: return "BORDER_CLIFF_L";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_RIGHT_TRANSITION: return "BORDER_CLIFF_R";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_RIVER: return "BORDER_RIVER";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_OCEAN_LEFT: return "BORDER_OCEAN_L";
+        case mFM_BLOCK_TYPE_BORDER_CLIFF_OCEAN_RIGHT: return "BORDER_OCEAN_R";
+        case mFM_BLOCK_TYPE_SEA_EXCEPTIONAL: return "SEA_EXCEPTIONAL";
+        case mFM_BLOCK_TYPE_OCEAN: return "OCEAN";
+        case mFM_BLOCK_TYPE_OCEAN_6: return "OCEAN_6";
+        case mFM_BLOCK_TYPE_OCEAN_7: return "OCEAN_7";
+        case mFM_BLOCK_TYPE_ISLAND_LEFT: return "ISLAND_L";
+        case mFM_BLOCK_TYPE_ISLAND_RIGHT: return "ISLAND_R";
+        default: return "UNKNOWN";
+    }
+}
+
+static void tglog_dump_blocks(const char* label, u8* blocks) {
+    tglog("\n--- %s ---\n", label);
+    tglog("     bx0          bx1          bx2          bx3          bx4          bx5          bx6\n");
+    for (int bz = 0; bz < BLOCK_Z_NUM; bz++) {
+        tglog("bz%d: ", bz);
+        for (int bx = 0; bx < BLOCK_X_NUM; bx++) {
+            u8 t = blocks[bz * BLOCK_X_NUM + bx];
+            tglog("%-13s", tglog_block_type_name(t));
+        }
+        tglog("\n");
+    }
+    tglog("\n");
+}
+
+static void tglog_dump_combi_table(mFM_combination_c* combi_table) {
+    tglog("\n--- FINAL COMBI TABLE ---\n");
+    tglog("     bx0    bx1    bx2    bx3    bx4    bx5    bx6\n");
+    for (int bz = 0; bz < BLOCK_Z_NUM; bz++) {
+        tglog("bz%d: ", bz);
+        for (int bx = 0; bx < BLOCK_X_NUM; bx++) {
+            int idx = bz * BLOCK_X_NUM + bx;
+            tglog("%3d/h%d  ", combi_table[idx].combination_type, combi_table[idx].height);
+        }
+        tglog("\n");
+    }
+    tglog("\n");
+}
+
+/* Classify an FG item for the debug grid character */
+static char tglog_fg_char(u16 item) {
+    if (item == EMPTY_NO) return '.';
+    if (item == FENCE0 || item == FENCE1 || item == WOOD_FENCE) return 'F';
+    if (item >= GRASS_A && item <= GRASS_C) return 'w'; /* weed/grass */
+    if ((item & 0xFF00) == 0xF000) return 'D'; /* DUMMY */
+    switch (ITEM_NAME_GET_TYPE(item)) {
+        case NAME_TYPE_ITEM0: /* ENV items: trees, flowers, rocks */
+            if (IS_ITEM_TREE(item)) return 'T';
+            if (IS_ITEM_FLOWER(item) || (item >= FLOWER_LEAVES_PANSIES0 && item < FLOWER_PANSIES0)) return 'f';
+            return 'o'; /* other env (signboards, buried, etc.) */
+        case NAME_TYPE_STRUCT: return 'S';
+        case NAME_TYPE_FTR0:
+        case NAME_TYPE_FTR1: return 'r'; /* furniture (dropped) */
+        case NAME_TYPE_ITEM1:
+        case NAME_TYPE_ITEM2: return 'i'; /* obtainable item */
+        case NAME_TYPE_WARP: return 'W'; /* warp/door */
+        default: return '?';
+    }
+}
+
+static void tglog_dump_fg_grid(void) {
+    tglog("\n--- FINAL FG GRID (all 30 playable acres) ---\n");
+
+    /* Per-acre item summary */
+    int total_trees = 0, total_flowers = 0, total_weeds = 0;
+    int total_fences = 0, total_structures = 0, total_dummies = 0;
+    for (int bz = 1; bz <= FG_BLOCK_Z_NUM; bz++) {
+        for (int bx = 1; bx <= FG_BLOCK_X_NUM; bx++) {
+            mFM_fg_c* fg = &Save_Get(fg[bz-1][bx-1]);
+            int trees = 0, flowers = 0, weeds = 0, fences = 0;
+            int structures = 0, dummies = 0, items = 0, empty = 0;
+            for (int uz = 0; uz < 16; uz++) {
+                for (int ux = 0; ux < 16; ux++) {
+                    u16 item = fg->items[uz][ux];
+                    if (item == EMPTY_NO) { empty++; continue; }
+                    if (IS_ITEM_TREE(item)) { trees++; continue; }
+                    if (IS_ITEM_FLOWER(item) || (item >= FLOWER_LEAVES_PANSIES0 && item < FLOWER_PANSIES0)) { flowers++; continue; }
+                    if (item >= GRASS_A && item <= GRASS_C) { weeds++; continue; }
+                    if (item == FENCE0 || item == FENCE1 || item == WOOD_FENCE) { fences++; continue; }
+                    if (ITEM_NAME_GET_TYPE(item) == NAME_TYPE_STRUCT) { structures++; continue; }
+                    if ((item & 0xFF00) == 0xF000) { dummies++; continue; }
+                    items++;
+                }
+            }
+            total_trees += trees; total_flowers += flowers; total_weeds += weeds;
+            total_fences += fences; total_structures += structures; total_dummies += dummies;
+            tglog("  Acre bx=%d bz=%d: %d trees, %d flowers, %d weeds, %d fences, %d structures, %d dummies, %d items, %d empty\n",
+                   bx, bz, trees, flowers, weeds, fences, structures, dummies, items, empty);
+
+            /* Log individual notable items (structures, dummies, fences) */
+            for (int uz = 0; uz < 16; uz++) {
+                for (int ux = 0; ux < 16; ux++) {
+                    u16 item = fg->items[uz][ux];
+                    if (ITEM_NAME_GET_TYPE(item) == NAME_TYPE_STRUCT) {
+                        tglog("    [%2d,%2d] = 0x%04X (STRUCTURE: +%d)\n", ux, uz, item, item - 0x5800);
+                    } else if ((item & 0xFF00) == 0xF000) {
+                        tglog("    [%2d,%2d] = 0x%04X (DUMMY)\n", ux, uz, item);
+                    } else if (item == FENCE0 || item == FENCE1 || item == WOOD_FENCE) {
+                        tglog("    [%2d,%2d] = 0x%04X (FENCE)\n", ux, uz, item);
+                    }
+                }
+            }
+        }
+    }
+    tglog("\n  TOTALS: %d trees, %d flowers, %d weeds, %d fences, %d structures, %d dummies\n",
+           total_trees, total_flowers, total_weeds, total_fences, total_structures, total_dummies);
+
+    /* ASCII FG grid — all 30 playable acres */
+    tglog("\n--- FG ASCII MAP ---\n");
+    tglog("Legend: .=empty T=tree f=flower w=weed F=fence S=structure D=dummy i=item r=furniture o=other\n");
+    tglog("Rows=Z(north to south), Cols=X(west to east). Acre boundaries: |/-\n\n");
+    tglog("     ");
+    for (int bx = 1; bx <= FG_BLOCK_X_NUM; bx++) {
+        tglog("    bx=%d           ", bx);
+    }
+    tglog("\n");
+    for (int gz = 0; gz < FG_BLOCK_Z_NUM * 16; gz++) {
+        int bz = gz / 16 + 1;
+        if (gz % 16 == 0) {
+            tglog("bz=%d ", bz);
+            for (int gx = 0; gx < FG_BLOCK_X_NUM * 16; gx++) {
+                tglog("-");
+                if ((gx + 1) % 16 == 0 && gx + 1 < FG_BLOCK_X_NUM * 16)
+                    tglog("+");
+            }
+            tglog("\n");
+        }
+        tglog("%3d: ", gz + 16); /* offset by 16 for absolute tile coords (bz=1 starts at tile 16) */
+        for (int gx = 0; gx < FG_BLOCK_X_NUM * 16; gx++) {
+            if (gx % 16 == 0 && gx > 0) tglog("|");
+            int bx_idx = gx / 16;
+            int ux = gx % 16;
+            int uz = gz % 16;
+            u16 item = Save_Get(fg[gz / 16][bx_idx]).items[uz][ux];
+            tglog("%c", tglog_fg_char(item));
+        }
+        tglog("\n");
+    }
+    tglog("\n");
+}
+
+/* Called from m_field_make.c after FG data has been copied to save data */
+extern void tglog_dump_fg_after_copy(void) {
+    /* Build obstacle grid unconditionally — works for both new towns and
+     * existing saves (where s_tglog is NULL). */
+    pc_acc_nav_build_obstacle_grid();
+
+    if (!s_tglog) return;
+    tglog_dump_fg_grid();
+    tglog_close();
+    {
+        char tts_buf[80];
+        snprintf(tts_buf, sizeof(tts_buf), "Attempt %d logged.", s_generation_number);
+        pc_acc_speak_queue(tts_buf);
+    }
+}
+
+#endif /* TARGET_PC */
+
 enum {
     mRF_BIT_SLOPE_LEFT,
     mRF_BIT_SLOPE_RIGHT,
@@ -459,7 +749,19 @@ static int mRF_BlockType2CliffIndex(u8 type) {
 }
 
 static int mRF_GetRandom(int max) {
+#ifdef TARGET_PC
+    u32 seed_before = qrand_get_seed();
+    int result = RANDOM(max);
+    s_rng_call_count++;
+    if (s_tglog) {
+        fprintf(s_tglog, "  RANDOM #%d: max=%d result=%d (seed=0x%08X -> 0x%08X)\n",
+                s_rng_call_count, max, result, seed_before, qrand_get_seed());
+        fflush(s_tglog);
+    }
+    return result;
+#else
     return RANDOM(max);
+#endif
 }
 
 static int mRF_D2ToD1(int bx, int bz) {
@@ -557,6 +859,10 @@ static int mRF_TraceCliffBlock(u8* block_data, int bx, int bz) {
         int next_idx = mRF_GetRandom(l_cliff_next_data[type]->count);
         u8 next = l_cliff_next_data[type]->types[next_idx];
         int next_direct;
+#ifdef TARGET_PC
+        tglog("    [CLIFF TRACE] at bx=%d bz=%d, next_idx=%d -> %s\n",
+              bx, bz, next_idx, tglog_block_type_name(next));
+#endif
 
         mRF_Direct2BlockNo(&n_bx0, &n_bz0, bx, bz, l_cliff_next_direct[type]);
         mRF_Direct2BlockNo(&n_bx1, &n_bz1, n_bx0, n_bz0,
@@ -668,15 +974,26 @@ static int mRF_DecideBaseCliff(u8* block_data) {
     int idx = mRF_GetRandom(l_cliff_start_table[start_z]->count);
     u8 start_type = l_cliff_start_table[start_z]->types[idx];
 
+#ifdef TARGET_PC
+    tglog("  [CLIFF] start_z_idx=%d -> bz=%d, start_type_idx=%d -> type=%s\n",
+          start_z, bz, idx, tglog_block_type_name(start_type));
+#endif
+
     block_data[mRF_D2ToD1(1, bz)] = start_type;
     block_data[mRF_D2ToD1(0, bz)] = mFM_BLOCK_TYPE_BORDER_CLIFF_LEFT_TRANSITION;
     mRF_TraceCliffBlock(block_data, 1, bz);
     mRF_SetEndCliffBlock(block_data);
 
     if (mRF_LastCheckCliff(block_data, 1, bz)) {
+#ifdef TARGET_PC
+        tglog("  [CLIFF] Cliff trace: SUCCESS (bz=%d to east wall)\n", bz);
+#endif
         return TRUE;
     }
 
+#ifdef TARGET_PC
+    tglog("  [CLIFF] Cliff trace: FAILED (retrying...)\n");
+#endif
     return FALSE;
 }
 
@@ -878,6 +1195,10 @@ static int mRF_TraceRiverPart1(u8* river_blocks, u8* cliff_blocks, int* start_bx
         int bx = startX_table[mRF_GetRandom(4)];
         u8* start_types = l_river_next_data[0]->types;
         u8 start_type = start_types[mRF_GetRandom(l_river_next_data[0]->count)];
+#ifdef TARGET_PC
+        tglog("  [RIVER PART1] trying start at bx=%d, type=%s\n",
+              bx, tglog_block_type_name(start_type));
+#endif
         int next_bnum;
         int next_next_bnum;
 
@@ -966,14 +1287,28 @@ static int mRF_DecideBaseRiver(u8* river_blocks, u8* cliff_blocks) {
     mRF_CpyBlockData(cliff_blocks, keep_blocks); // ???
 
     if (mRF_TraceRiverPart1(river_blocks, cliff_blocks, &start_bx, &start_bz) == FALSE) {
+#ifdef TARGET_PC
+        tglog("  [RIVER] TraceRiverPart1 FAILED\n");
+#endif
         return FALSE;
     }
 
+#ifdef TARGET_PC
+    tglog("  [RIVER] Part1 success: start at bx=%d bz=%d\n", start_bx, start_bz);
+#endif
+
     mRF_InitFlag(challenge_flag, (BLOCK_Z_NUM - 2) * BLOCK_X_NUM);
     if (mRF_TraceRiverPart2(river_blocks, cliff_blocks, start_bx, start_bz, challenge_flag) != FALSE) {
-        return mRF_LastCheckRiver(river_blocks, start_bx, start_bz);
+        int ok = mRF_LastCheckRiver(river_blocks, start_bx, start_bz);
+#ifdef TARGET_PC
+        tglog("  [RIVER] Part2+LastCheck: %s\n", ok ? "SUCCESS" : "FAILED");
+#endif
+        return ok;
     }
 
+#ifdef TARGET_PC
+    tglog("  [RIVER] TraceRiverPart2 FAILED\n");
+#endif
     return FALSE;
 }
 
@@ -1039,6 +1374,10 @@ static int mRF_SetBridgeBlock(u8* blocks, int stepmode) {
     blocks_p2 = blocks;
     rng = mRF_GetRandom(10) & 1;
     mRF_GetRiverCrossCliffInfo(&cross_bx, &cross_bz, blocks);
+#ifdef TARGET_PC
+    tglog("  [BRIDGE] rng=%d (0=no lower bridge if 2-step), cross at bx=%d bz=%d\n",
+          rng, cross_bx, cross_bz);
+#endif
 
     for (bz = 0; bz < (BLOCK_Z_NUM - 2); bz++) {
         for (bx = 0; bx < BLOCK_X_NUM; bx++) {
@@ -1057,6 +1396,9 @@ static int mRF_SetBridgeBlock(u8* blocks, int stepmode) {
     if (before_cross != 0) {
         int selected = mRF_GetRandom(before_cross);
         int cross_num = 0;
+#ifdef TARGET_PC
+        tglog("  [BRIDGE UPPER] before_cross=%d, selected=%d\n", before_cross, selected);
+#endif
 
         for (bz = 0; bz < (BLOCK_Z_NUM - 2); bz++) {
             for (bx = 0; bx < BLOCK_X_NUM; bx++) {
@@ -1064,6 +1406,9 @@ static int mRF_SetBridgeBlock(u8* blocks, int stepmode) {
                     if (cross_num == selected) {
                         blocks_p[0] += (mFM_BLOCK_TYPE_RIVER_SOUTH_BRIDGE - mFM_BLOCK_TYPE_RIVER_SOUTH); // change to a bridge block type
                         flags |= mRF_TO_BIT(BRIDGE_UPPER);
+#ifdef TARGET_PC
+                        tglog("  [BRIDGE UPPER] placed at bx=%d bz=%d\n", bx, bz);
+#endif
                         // no break?
                     }
 
@@ -1077,6 +1422,9 @@ static int mRF_SetBridgeBlock(u8* blocks, int stepmode) {
 
     if (after_cross != 0 && stepmode == mRF_STEPMODE_TWO && rng != 0) {
         int selected = mRF_GetRandom(after_cross);
+#ifdef TARGET_PC
+        tglog("  [BRIDGE LOWER] after_cross=%d, selected=%d\n", after_cross, selected);
+#endif
         int cross_num = 0;
 
         for (bz = 0; bz < (BLOCK_Z_NUM - 2); bz++) {
@@ -1085,6 +1433,9 @@ static int mRF_SetBridgeBlock(u8* blocks, int stepmode) {
                     if (cross_num == selected) {
                         blocks_p2[0] += (mFM_BLOCK_TYPE_RIVER_SOUTH_BRIDGE - mFM_BLOCK_TYPE_RIVER_SOUTH); // change to a bridge block type
                         flags |= mRF_TO_BIT(BRIDGE_LOWER);
+#ifdef TARGET_PC
+                        tglog("  [BRIDGE LOWER] placed at bx=%d bz=%d\n", bx, bz);
+#endif
                         // no break?
                     }
 
@@ -1298,6 +1649,9 @@ static void mRF_SelectBlock(mFM_combination_c* combi_table, mFM_combo_info_c* co
                 mActor_name_t down_bg_name = mRF_GetExceptionalSeaBgDownBgName(
                     combi_info[combi_table[mRF_D2ToD1(bx, bz - 1)].combination_type].bg_id);
                 combi_table[bnum].combination_type = mRF_BgName2RandomConbiNo(down_bg_name, combi_info, combi_count);
+#ifdef TARGET_PC
+                tglog("  [SELECT bx=%d bz=%d] SEA_EXCEPTIONAL -> combi=%d\n", bx, bz, combi_table[bnum].combination_type);
+#endif
             } else {
                 int type_count = mRF_TypeCombCount(combi_info, combi_count, type, FALSE);
                 int selected;
@@ -1310,6 +1664,10 @@ static void mRF_SelectBlock(mFM_combination_c* combi_table, mFM_combo_info_c* co
                     if (block_no != -1) {
                         combi_table[bnum].combination_type = block_no;
                         l_use_data[bnum] = block_no;
+#ifdef TARGET_PC
+                        tglog("  [SELECT bx=%d bz=%d] type=%s fresh: selected=%d/%d -> combi=%d\n",
+                              bx, bz, tglog_block_type_name(type), selected, type_count, block_no);
+#endif
                     } else {
                         selected = mRF_GetRandom(mRF_TypeCombCount(combi_info, combi_count, type, TRUE));
                         block_no = mRF_IndexInType2BlockNo(combi_info, combi_count, type, selected, TRUE);
@@ -1317,8 +1675,16 @@ static void mRF_SelectBlock(mFM_combination_c* combi_table, mFM_combo_info_c* co
                         if (block_no != -1) {
                             combi_table[bnum].combination_type = block_no;
                             l_use_data[bnum] = block_no;
+#ifdef TARGET_PC
+                            tglog("  [SELECT bx=%d bz=%d] type=%s reuse(1st fallback): selected=%d -> combi=%d\n",
+                                  bx, bz, tglog_block_type_name(type), selected, block_no);
+#endif
                         } else {
                             combi_table[bnum].combination_type = BLOCK_COMBI_GRD_S_F_7;
+#ifdef TARGET_PC
+                            tglog("  [SELECT bx=%d bz=%d] type=%s FALLBACK to BLOCK_COMBI_GRD_S_F_7\n",
+                                  bx, bz, tglog_block_type_name(type));
+#endif
                         }
                     }
                 } else {
@@ -1328,8 +1694,16 @@ static void mRF_SelectBlock(mFM_combination_c* combi_table, mFM_combo_info_c* co
                     if (block_no != -1) {
                         combi_table[bnum].combination_type = block_no;
                         l_use_data[bnum] = block_no;
+#ifdef TARGET_PC
+                        tglog("  [SELECT bx=%d bz=%d] type=%s reuse(no fresh): selected=%d -> combi=%d\n",
+                              bx, bz, tglog_block_type_name(type), selected, block_no);
+#endif
                     } else {
                         combi_table[bnum].combination_type = BLOCK_COMBI_GRD_S_F_7;
+#ifdef TARGET_PC
+                        tglog("  [SELECT bx=%d bz=%d] type=%s FALLBACK to BLOCK_COMBI_GRD_S_F_7\n",
+                              bx, bz, tglog_block_type_name(type));
+#endif
                     }
                 }
             }
@@ -1358,14 +1732,26 @@ static void mRF_CopyBlockBaseHeightData(mFM_combination_c* combi_table, u8* base
 }
 
 static void mRF_MakeBaseLandformStep2(u8* cliff_blocks, u8* river_blocks) {
+#ifdef TARGET_PC
+    int landform_retries = 0;
+    tglog("  [LANDFORM STEP2] generating cliff+river from base layout...\n");
+#endif
+
     mRF_CpyBlockData(cliff_blocks, l_base_blocks);
     mRF_CpyBlockData(river_blocks, l_base_blocks);
 
     while (mRF_SetRandomBlockData(river_blocks, cliff_blocks) == FALSE) {
+#ifdef TARGET_PC
+        landform_retries++;
+        tglog("  [LANDFORM STEP2] cliff+river attempt %d FAILED, retrying\n", landform_retries);
+#endif
         mRF_CpyBlockData(cliff_blocks, l_base_blocks);
         mRF_CpyBlockData(river_blocks, l_base_blocks);
     }
 
+#ifdef TARGET_PC
+    tglog("  [LANDFORM STEP2] SUCCESS after %d retries\n", landform_retries);
+#endif
     mRF_DecideRiverAlbuminCliff(cliff_blocks, river_blocks);
 }
 
@@ -1458,22 +1844,40 @@ static int mRF_SetSlopeBlock(u8* blocks) {
         if (blocks[mRF_D2ToD1(0, bz)] == mFM_BLOCK_TYPE_BORDER_CLIFF_LEFT_TRANSITION) {
             int possibilities = mRF_CountDirectedInfoCliff(blocks, 0, bz, mRF_RIVER_SIDE_LEFT); // left side of river
             int selected;
+#ifdef TARGET_PC
+            tglog("  [SLOPE] cliff start at bz=%d, left_possibilities=%d\n", bz, possibilities);
+#endif
 
             if (possibilities != 0) {
                 selected = mRF_GetRandom(possibilities);
+#ifdef TARGET_PC
+                tglog("  [SLOPE LEFT] selected=%d of %d\n", selected, possibilities);
+#endif
 
                 if (mRF_SetSlopeDirectedInfoCliff(blocks, 0, bz, mRF_RIVER_SIDE_LEFT, selected) != FALSE) {
                     flags |= mRF_TO_BIT(SLOPE_LEFT);
+#ifdef TARGET_PC
+                    tglog("  [SLOPE LEFT] placed successfully\n");
+#endif
                 }
             }
 
             possibilities = mRF_CountDirectedInfoCliff(blocks, 0, bz, mRF_RIVER_SIDE_RIGHT); // right side of river
+#ifdef TARGET_PC
+            tglog("  [SLOPE] right_possibilities=%d\n", possibilities);
+#endif
 
             if (possibilities != 0) {
                 selected = mRF_GetRandom(possibilities);
+#ifdef TARGET_PC
+                tglog("  [SLOPE RIGHT] selected=%d of %d\n", selected, possibilities);
+#endif
 
                 if (mRF_SetSlopeDirectedInfoCliff(blocks, 0, bz, mRF_RIVER_SIDE_RIGHT, selected) != FALSE) {
                     flags |= mRF_TO_BIT(SLOPE_RIGHT);
+#ifdef TARGET_PC
+                    tglog("  [SLOPE RIGHT] placed successfully\n");
+#endif
                 }
             }
         }
@@ -1610,10 +2014,20 @@ static int mRF_RewriteFlatType(u8* blocks, int idx, u8 type, int river_side, int
 static int mRF_FlatBlock2Unique(u8* blocks, u8 unique_type, int river_side, int cliff_height) {
     int num = mRF_CountFlatBlock(blocks, river_side, cliff_height);
 
+#ifdef TARGET_PC
+    tglog("    [FLAT2UNIQUE] type=%s river_side=%d cliff_height=%d candidates=%d\n",
+          tglog_block_type_name(unique_type), river_side, cliff_height, num);
+#endif
+
     if (num != 0) {
         int selected = mRF_GetRandom(num);
+        int result_bnum = mRF_RewriteFlatType(blocks, selected, unique_type, river_side, cliff_height);
 
-        if (mRF_RewriteFlatType(blocks, selected, unique_type, river_side, cliff_height) != -1) {
+        if (result_bnum != -1) {
+#ifdef TARGET_PC
+            tglog("    [FLAT2UNIQUE] selected=%d -> bnum=%d (bx=%d bz=%d)\n",
+                  selected, result_bnum, result_bnum % BLOCK_X_NUM, result_bnum / BLOCK_X_NUM);
+#endif
             return TRUE;
         }
     }
@@ -1627,9 +2041,19 @@ static int mRF_SetNeedleworkAndWharfBlock(u8* blocks) {
     int i;
     int bx = 0;
 
+#ifdef TARGET_PC
+    tglog("  [NEEDLEWORK/WHARF] needlework_bx_idx=%d (0-based among beach blocks)\n", needlework_bx);
+#endif
+
     if (blocks[mRF_D2ToD1(5, 6)] == mFM_BLOCK_TYPE_BEACH) {
         blocks[mRF_D2ToD1(5, 6)] = mFM_BLOCK_TYPE_PORT;
+#ifdef TARGET_PC
+        tglog("  [DOCK] placed at bx=5 bz=6\n");
+#endif
     } else {
+#ifdef TARGET_PC
+        tglog("  [DOCK] FAILED — bx=5 bz=6 is not BEACH\n");
+#endif
         return 0;
     }
 
@@ -1640,6 +2064,9 @@ static int mRF_SetNeedleworkAndWharfBlock(u8* blocks) {
             if (needlework_bx == bx) {
                 blocks[bnum] = mFM_BLOCK_TYPE_NEEDLEWORK;
                 flags |= mRF_TO_BIT(NEEDLEWORK);
+#ifdef TARGET_PC
+                tglog("  [ABLE SISTERS] placed at bx=%d bz=6 (beach slot %d)\n", i, bx);
+#endif
             }
 
             bx++;
@@ -1654,24 +2081,54 @@ static int mRF_SetUniqueFlatBlock(u8* blocks) {
     int side0 = mRF_GetRandom(100) & 1;
     int side1 = (side0 ^ 1) & 1;
 
+#ifdef TARGET_PC
+    tglog("  [UNIQUE FLAT] side0=%s side1=%s\n",
+          side0 == mRF_RIVER_SIDE_LEFT ? "LEFT" : "RIGHT",
+          side1 == mRF_RIVER_SIDE_LEFT ? "LEFT" : "RIGHT");
+#endif
+
     /* Wishing Well should be on one side of the river below the cliff */
     if (mRF_FlatBlock2Unique(blocks, mFM_BLOCK_TYPE_SHRINE, side0, mRF_CLIFF_HEIGHT_BELOW)) {
         flags |= mRF_TO_BIT(SHRINE);
+#ifdef TARGET_PC
+        tglog("  [SHRINE] placed on %s side (primary)\n", side0 == mRF_RIVER_SIDE_LEFT ? "LEFT" : "RIGHT");
+#endif
     } else if (mRF_FlatBlock2Unique(blocks, mFM_BLOCK_TYPE_SHRINE, side1, mRF_CLIFF_HEIGHT_BELOW)) {
         flags |= mRF_TO_BIT(SHRINE);
+#ifdef TARGET_PC
+        tglog("  [SHRINE] placed on %s side (fallback)\n", side1 == mRF_RIVER_SIDE_LEFT ? "LEFT" : "RIGHT");
+#endif
     }
+#ifdef TARGET_PC
+    else { tglog("  [SHRINE] FAILED to place\n"); }
+#endif
 
     /* Police Station prefers to be on the opposite side of the river from the Wishing Well if possible */
     if (mRF_FlatBlock2Unique(blocks, mFM_BLOCK_TYPE_POLICE_BOX, side1, mRF_CLIFF_HEIGHT_BELOW)) {
         flags |= mRF_TO_BIT(POLICE);
+#ifdef TARGET_PC
+        tglog("  [POLICE] placed on %s side (opposite shrine)\n", side1 == mRF_RIVER_SIDE_LEFT ? "LEFT" : "RIGHT");
+#endif
     } else if (mRF_FlatBlock2Unique(blocks, mFM_BLOCK_TYPE_POLICE_BOX, side0, mRF_CLIFF_HEIGHT_BELOW)) {
         flags |= mRF_TO_BIT(POLICE);
+#ifdef TARGET_PC
+        tglog("  [POLICE] placed on %s side (same as shrine fallback)\n", side0 == mRF_RIVER_SIDE_LEFT ? "LEFT" : "RIGHT");
+#endif
     }
+#ifdef TARGET_PC
+    else { tglog("  [POLICE] FAILED to place\n"); }
+#endif
 
     /* Museum can be on either side of the river below the cliff */
     if (mRF_FlatBlock2Unique(blocks, mFM_BLOCK_TYPE_MUSEUM, mRF_RIVER_SIDE_BOTH, mRF_CLIFF_HEIGHT_BELOW)) {
         flags |= mRF_TO_BIT(MUSEUM);
+#ifdef TARGET_PC
+        tglog("  [MUSEUM] placed (either side, below cliff)\n");
+#endif
     }
+#ifdef TARGET_PC
+    else { tglog("  [MUSEUM] FAILED to place\n"); }
+#endif
 
     return flags;
 }
@@ -1685,9 +2142,15 @@ static int mRF_SetUniqueRailBlock(u8* blocks) {
     if (mRF_GetRandom(1000) & 1) {
         t0 = mFM_BLOCK_TYPE_TRACKS_SHOP;
         t1 = mFM_BLOCK_TYPE_TRACKS_POST_OFFICE;
+#ifdef TARGET_PC
+        tglog("  [RAIL] swap=odd -> t0=SHOP (left), t1=POST_OFFICE (right)\n");
+#endif
     } else {
         t0 = mFM_BLOCK_TYPE_TRACKS_POST_OFFICE;
         t1 = mFM_BLOCK_TYPE_TRACKS_SHOP;
+#ifdef TARGET_PC
+        tglog("  [RAIL] swap=even -> t0=POST_OFFICE (left), t1=SHOP (right)\n");
+#endif
     }
 
     set_t0 = FALSE;
@@ -1700,6 +2163,10 @@ static int mRF_SetUniqueRailBlock(u8* blocks) {
         if (blocks[bnum] == mFM_BLOCK_TYPE_TRACKS_DUMP) {
             blocks[bnum] = t0;
             set_t0 = TRUE;
+#ifdef TARGET_PC
+            tglog("  [RAIL] %s placed at bx=%d bz=1\n",
+                  t0 == mFM_BLOCK_TYPE_TRACKS_SHOP ? "SHOP" : "POST_OFFICE", bx);
+#endif
         }
     }
 
@@ -1710,6 +2177,10 @@ static int mRF_SetUniqueRailBlock(u8* blocks) {
         if (blocks[bnum] == mFM_BLOCK_TYPE_TRACKS_DUMP) {
             blocks[bnum] = t1;
             set_t1 = TRUE;
+#ifdef TARGET_PC
+            tglog("  [RAIL] %s placed at bx=%d bz=1\n",
+                  t1 == mFM_BLOCK_TYPE_TRACKS_SHOP ? "SHOP" : "POST_OFFICE", bx);
+#endif
         }
     }
 }
@@ -1754,14 +2225,28 @@ static int mRF_SetPoolDirectedRiverBlock(u8* blocks, int idx) {
 static int mRF_SetPoolBlock(u8* blocks) {
     int pure_river_num = mRF_CountPureRiver(blocks);
 
+#ifdef TARGET_PC
+    tglog("  [POOL] pure_river_num=%d\n", pure_river_num);
+#endif
+
     if (pure_river_num != 0) {
         int selected = mRF_GetRandom(pure_river_num);
 
+#ifdef TARGET_PC
+        tglog("  [POOL] selected=%d of %d\n", selected, pure_river_num);
+#endif
+
         if (mRF_SetPoolDirectedRiverBlock(blocks, selected) != FALSE) {
+#ifdef TARGET_PC
+            tglog("  [POOL] placed successfully\n");
+#endif
             return mRF_TO_BIT(POOL);
         }
     }
 
+#ifdef TARGET_PC
+    tglog("  [POOL] FAILED to place\n");
+#endif
     return 0;
 }
 
@@ -1820,8 +2305,14 @@ static int mRF_MakePerfectBit() {
 }
 
 static void mRF_MakeBaseLandformStep3(u8* cliff_blocks, u8* river_blocks) {
-    u8* src = l_mRF_step3_blockss[mRF_GetRandom(ARRAY_COUNT(l_mRF_step3_blockss))];
+    int variant = mRF_GetRandom(ARRAY_COUNT(l_mRF_step3_blockss));
+    u8* src = l_mRF_step3_blockss[variant];
     int i;
+
+#ifdef TARGET_PC
+    tglog("  [LANDFORM STEP3] selected variant %d of %d pre-built layouts\n",
+          variant, (int)ARRAY_COUNT(l_mRF_step3_blockss));
+#endif
 
     for (i = 0; i < BLOCK_TOTAL_NUM; i++) {
         cliff_blocks[i] = src[i];
@@ -1854,24 +2345,217 @@ extern void mRF_MakeRandomField_ovl(mFM_combination_c* combi_table, mFM_combo_in
     int bit = 0;
     int perfect_bit;
     int stepmode;
+
+#ifdef TARGET_PC
+    tglog_open();
+    tglog("=== mRF_MakeRandomField_ovl() ENTRY ===\n");
+    tglog("combi_count = %d\n\n", combi_count);
+    {
+        char tts_buf[80];
+        snprintf(tts_buf, sizeof(tts_buf), "Town generation attempt %d started.", s_generation_number);
+        pc_acc_speak_interrupt(tts_buf);
+    }
+#endif
+
     stepmode = mRF_GetRandomStepMode(); // select 2 or 3 step town
     perfect_bit = mRF_MakePerfectBit(); // lol
 
+#ifdef TARGET_PC
+    tglog("\n[STEPMODE] %s (value=%d, 0=two-tier, 1=three-tier)\n",
+          stepmode == mRF_STEPMODE_THREE ? "THREE-TIER" : "TWO-TIER", stepmode);
+    tglog("[PERFECT BIT] 0x%03X (all %d bits must be set)\n", perfect_bit, mRF_BIT_NUM);
+    tglog("  Bits: SLOPE_L=%d SLOPE_R=%d BRIDGE_UP=%d BRIDGE_LO=%d SHRINE=%d POLICE=%d MUSEUM=%d POOL=%d NEEDLEWORK=%d\n\n",
+          mRF_BIT_SLOPE_LEFT, mRF_BIT_SLOPE_RIGHT, mRF_BIT_BRIDGE_UPPER, mRF_BIT_BRIDGE_LOWER,
+          mRF_BIT_SHRINE, mRF_BIT_POLICE, mRF_BIT_MUSEUM, mRF_BIT_POOL, mRF_BIT_NEEDLEWORK);
+    int attempt = 0;
+#endif
+
     while (perfect_bit != (perfect_bit & bit)) {
+#ifdef TARGET_PC
+        attempt++;
+        tglog("\n################################################################\n");
+        tglog("GENERATION ATTEMPT #%d (RNG state=0x%08X)\n", attempt, qrand_get_seed());
+        tglog("################################################################\n\n");
+#endif
+
         bit = 0;
         mRF_InitCombTable(combi_table);                                  // clear save data acres
+
+#ifdef TARGET_PC
+        tglog("[1] mRF_MakeBaseLandform (stepmode=%s)\n",
+              stepmode == mRF_STEPMODE_THREE ? "3-tier" : "2-tier");
+#endif
         mRF_MakeBaseLandform(blocks_c, blocks_r, stepmode);              // make the town base (cliffs + river)
+#ifdef TARGET_PC
+        tglog_dump_blocks("AFTER MakeBaseLandform (cliff+river merged)", blocks_c);
+#endif
+
+#ifdef TARGET_PC
+        tglog("[2] mRF_MakeFlatPlaceInfomation\n");
+#endif
         mRF_MakeFlatPlaceInfomation(blocks_c);                           // log all "flat" blocks (no river or cliff)
+
+#ifdef TARGET_PC
+        tglog("[3] mRF_SetMarinBlock (set beach row bz=6)\n");
+#endif
         mRF_SetMarinBlock(blocks_c);                                     // make the beach base
+#ifdef TARGET_PC
+        tglog_dump_blocks("AFTER SetMarinBlock", blocks_c);
+#endif
+
+#ifdef TARGET_PC
+        tglog("[4] mRF_SetBridgeAndSlopeBlock\n");
+#endif
         bit |= mRF_SetBridgeAndSlopeBlock(blocks_c, stepmode);           // set bridges and slopes
-        bit |= mRF_SetNeedleworkAndWharfBlock(blocks_c);                 // set Able Sister's and dock
-        bit |= mRF_SetUniqueFlatBlock(blocks_c);                         // Set Wishing Well, Police Station, & Museum
+#ifdef TARGET_PC
+        tglog("  Bridge/Slope result bits: 0x%03X\n", bit);
+        tglog("    SLOPE_LEFT=%s SLOPE_RIGHT=%s BRIDGE_UPPER=%s BRIDGE_LOWER=%s\n",
+              (bit & mRF_TO_BIT(SLOPE_LEFT)) ? "YES" : "no",
+              (bit & mRF_TO_BIT(SLOPE_RIGHT)) ? "YES" : "no",
+              (bit & mRF_TO_BIT(BRIDGE_UPPER)) ? "YES" : "no",
+              (bit & mRF_TO_BIT(BRIDGE_LOWER)) ? "YES" : "no");
+        tglog_dump_blocks("AFTER SetBridgeAndSlopeBlock", blocks_c);
+#endif
+
+#ifdef TARGET_PC
+        tglog("[5] mRF_SetNeedleworkAndWharfBlock (Able Sisters + Dock)\n");
+#endif
+        {
+            int nw_bit = mRF_SetNeedleworkAndWharfBlock(blocks_c);       // set Able Sister's and dock
+            bit |= nw_bit;
+#ifdef TARGET_PC
+            tglog("  Needlework/Wharf result bits: 0x%03X\n", nw_bit);
+            tglog("    NEEDLEWORK=%s\n", (nw_bit & mRF_TO_BIT(NEEDLEWORK)) ? "YES" : "no");
+            /* Find where Port and Needlework ended up */
+            for (int _bx = 1; _bx <= 5; _bx++) {
+                u8 _t = blocks_c[6 * BLOCK_X_NUM + _bx];
+                if (_t == mFM_BLOCK_TYPE_PORT) tglog("    PORT placed at bx=%d bz=6\n", _bx);
+                if (_t == mFM_BLOCK_TYPE_NEEDLEWORK) tglog("    NEEDLEWORK placed at bx=%d bz=6\n", _bx);
+            }
+#endif
+        }
+
+#ifdef TARGET_PC
+        tglog("[6] mRF_SetUniqueFlatBlock (Shrine, Police, Museum)\n");
+#endif
+        {
+            int uf_bit = mRF_SetUniqueFlatBlock(blocks_c);               // Set Wishing Well, Police Station, & Museum
+            bit |= uf_bit;
+#ifdef TARGET_PC
+            tglog("  UniqueFlatBlock result bits: 0x%03X\n", uf_bit);
+            tglog("    SHRINE=%s POLICE=%s MUSEUM=%s\n",
+                  (uf_bit & mRF_TO_BIT(SHRINE)) ? "YES" : "no",
+                  (uf_bit & mRF_TO_BIT(POLICE)) ? "YES" : "no",
+                  (uf_bit & mRF_TO_BIT(MUSEUM)) ? "YES" : "no");
+            /* Find acre coords */
+            for (int _bz = 0; _bz < BLOCK_Z_NUM; _bz++) {
+                for (int _bx = 0; _bx < BLOCK_X_NUM; _bx++) {
+                    u8 _t = blocks_c[_bz * BLOCK_X_NUM + _bx];
+                    if (_t == mFM_BLOCK_TYPE_SHRINE) tglog("    SHRINE at bx=%d bz=%d\n", _bx, _bz);
+                    if (_t == mFM_BLOCK_TYPE_POLICE_BOX) tglog("    POLICE at bx=%d bz=%d\n", _bx, _bz);
+                    if (_t == mFM_BLOCK_TYPE_MUSEUM) tglog("    MUSEUM at bx=%d bz=%d\n", _bx, _bz);
+                }
+            }
+#endif
+        }
+
+#ifdef TARGET_PC
+        tglog("[7] mRF_SetUniqueRailBlock (Shop + Post Office)\n");
+#endif
         mRF_SetUniqueRailBlock(blocks_c);                                // Set Nook's Shop & Post Office
-        bit |= mRF_SetPoolBlock(blocks_c);                               // Set lake
-        bit |= mRF_SetSeaBlockWithBridgeRiver(blocks_c, bit);            // Set river bridge only if necessary
+#ifdef TARGET_PC
+        /* Find where Shop, Post Office, Station, Dump ended up on tracks row */
+        for (int _bx = 0; _bx < BLOCK_X_NUM; _bx++) {
+            u8 _t = blocks_c[1 * BLOCK_X_NUM + _bx];
+            if (_t == mFM_BLOCK_TYPE_TRACKS_SHOP) tglog("    SHOP placed at bx=%d bz=1\n", _bx);
+            if (_t == mFM_BLOCK_TYPE_TRACKS_POST_OFFICE) tglog("    POST_OFFICE placed at bx=%d bz=1\n", _bx);
+            if (_t == mFM_BLOCK_TYPE_TRACKS_STATION) tglog("    STATION at bx=%d bz=1 (always 3)\n", _bx);
+            if (_t == mFM_BLOCK_TYPE_TRACKS_DUMP) tglog("    DUMP at bx=%d bz=1\n", _bx);
+        }
+#endif
+
+#ifdef TARGET_PC
+        tglog("[8] mRF_SetPoolBlock (lake)\n");
+#endif
+        {
+            int pool_bit = mRF_SetPoolBlock(blocks_c);                   // Set lake
+            bit |= pool_bit;
+#ifdef TARGET_PC
+            tglog("  Pool result bits: 0x%03X  POOL=%s\n", pool_bit, (pool_bit & mRF_TO_BIT(POOL)) ? "YES" : "no");
+            for (int _bz = 0; _bz < BLOCK_Z_NUM; _bz++) {
+                for (int _bx = 0; _bx < BLOCK_X_NUM; _bx++) {
+                    u8 _t = blocks_c[_bz * BLOCK_X_NUM + _bx];
+                    if (_t >= mFM_BLOCK_TYPE_POOL_SOUTH && _t <= mFM_BLOCK_TYPE_POOL_WEST_SOUTH)
+                        tglog("    POOL block at bx=%d bz=%d type=%s\n", _bx, _bz, tglog_block_type_name(_t));
+                }
+            }
+#endif
+        }
+
+#ifdef TARGET_PC
+        tglog("[9] mRF_SetSeaBlockWithBridgeRiver\n");
+#endif
+        {
+            int sea_bit = mRF_SetSeaBlockWithBridgeRiver(blocks_c, bit); // Set river bridge only if necessary
+            bit |= sea_bit;
+#ifdef TARGET_PC
+            tglog("  SeaBlock result bits: 0x%03X  BRIDGE_LOWER=%s\n", sea_bit,
+                  (sea_bit & mRF_TO_BIT(BRIDGE_LOWER)) ? "YES (beach river bridge)" : "no");
+#endif
+        }
+
         mRF_MakeBaseHeightTable(base_table, blocks_c);                   // Create acre height map
         mRF_ReportRandomFieldBitResult(bit, perfect_bit);                // Debug function stubbed
+
+#ifdef TARGET_PC
+        tglog("\n[HEIGHT TABLE]\n");
+        tglog("     bx0  bx1  bx2  bx3  bx4  bx5  bx6\n");
+        for (int _bz = 0; _bz < BLOCK_Z_NUM; _bz++) {
+            tglog("bz%d: ", _bz);
+            for (int _bx = 0; _bx < BLOCK_X_NUM; _bx++) {
+                tglog("%-5d", base_table[_bz * BLOCK_X_NUM + _bx]);
+            }
+            tglog("\n");
+        }
+#endif
+
+#ifdef TARGET_PC
+        tglog("\n[10] mRF_SelectBlock (choose actual acre combos)\n");
+#endif
         mRF_SelectBlock(combi_table, combi_info, combi_count, blocks_c); // Choose the actual acres for each block
         mRF_CopyBlockBaseHeightData(combi_table, base_table);            // Set block height
+
+#ifdef TARGET_PC
+        tglog_dump_blocks("FINAL BLOCK LAYOUT", blocks_c);
+        tglog_dump_combi_table(combi_table);
+
+        tglog("\n[BIT CHECK] bit=0x%03X perfect=0x%03X match=%s\n", bit, perfect_bit,
+              (perfect_bit == (perfect_bit & bit)) ? "YES — generation complete!" : "NO — RETRYING");
+        if (perfect_bit != (perfect_bit & bit)) {
+            int missing = perfect_bit & ~bit;
+            tglog("  Missing bits: 0x%03X\n", missing);
+            if (missing & mRF_TO_BIT(SLOPE_LEFT)) tglog("    - SLOPE_LEFT\n");
+            if (missing & mRF_TO_BIT(SLOPE_RIGHT)) tglog("    - SLOPE_RIGHT\n");
+            if (missing & mRF_TO_BIT(BRIDGE_UPPER)) tglog("    - BRIDGE_UPPER\n");
+            if (missing & mRF_TO_BIT(BRIDGE_LOWER)) tglog("    - BRIDGE_LOWER\n");
+            if (missing & mRF_TO_BIT(SHRINE)) tglog("    - SHRINE\n");
+            if (missing & mRF_TO_BIT(POLICE)) tglog("    - POLICE\n");
+            if (missing & mRF_TO_BIT(MUSEUM)) tglog("    - MUSEUM\n");
+            if (missing & mRF_TO_BIT(POOL)) tglog("    - POOL\n");
+            if (missing & mRF_TO_BIT(NEEDLEWORK)) tglog("    - NEEDLEWORK\n");
+        }
+#endif
     }
+
+#ifdef TARGET_PC
+    tglog("\n================================================================\n");
+    tglog("GENERATION COMPLETE after %d attempt(s)\n", attempt);
+    tglog("Total RANDOM() calls so far: %d\n", s_rng_call_count);
+    tglog("RNG state: 0x%08X\n", qrand_get_seed());
+    tglog("================================================================\n");
+    tglog("\n(FG grid dump will follow after FG data copy in m_field_make.c)\n");
+    /* NOTE: log file stays open — tglog_dump_fg_after_copy() in m_field_make.c
+       will dump the FG grid and close the file. */
+    pc_acc_speak_interrupt("Town generation complete. Writing debug log.");
+#endif
 }
