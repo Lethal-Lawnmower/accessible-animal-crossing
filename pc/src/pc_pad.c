@@ -167,6 +167,22 @@ u32 PADRead(PADStatus* status) {
         }
     }
 
+    /* Auto-walk (Ctrl+K): game drives the player along the current nav route.
+     * If the user supplies manual movement input (non-zero stick at this
+     * point), cancel auto-walk and let them take over. Otherwise inject. */
+    {
+        s8 aw_sx, aw_sy;
+        pc_acc_nav_get_autowalk_stick(&aw_sx, &aw_sy);
+        if (aw_sx != 0 || aw_sy != 0) {
+            if (stickX != 0 || stickY != 0) {
+                pc_acc_nav_autowalk_cancel_on_input();
+            } else {
+                stickX = aw_sx;
+                stickY = aw_sy;
+            }
+        }
+    }
+
     status[0].button = buttons;
     status[0].stickX = stickX;
     status[0].stickY = stickY;

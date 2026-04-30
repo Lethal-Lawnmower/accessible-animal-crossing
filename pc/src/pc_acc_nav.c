@@ -51,6 +51,12 @@
 #include <mmsystem.h>
 #endif
 
+/* Auto-walk feature flag. Disabled for release; flip to 1 to re-enable.
+ * When 0, Ctrl+K does nothing and pc_pad.c sees 0,0 stick injection. */
+#ifndef PC_NAV_AUTOWALK
+#define PC_NAV_AUTOWALK 0
+#endif
+
 /* ========================================================================= */
 /* Nav categories                                                            */
 /* ========================================================================= */
@@ -145,6 +151,13 @@ static int     s_route_goal_x   = -1;   /* goal tile for recalculation */
 static int     s_route_goal_z   = -1;
 static char    s_route_target[64] = ""; /* name of route target */
 
+/* ---- Auto-walk (Ctrl+K): game-drives-the-player along the active route ---- */
+static int s_autowalk_active = 0;
+static int s_autowalk_stall_frames = 0;   /* frames since player's tile last advanced */
+static int s_autowalk_last_tile_x = -1;
+static int s_autowalk_last_tile_z = -1;
+#define AUTOWALK_STALL_LIMIT 90            /* ~1.5s @ 60fps before we give up */
+
 static void nav_clear_route(void) {
     s_route_active = 0;
     s_route_seg_count = 0;
@@ -155,6 +168,39 @@ static void nav_clear_route(void) {
     s_route_goal_x = -1;
     s_route_goal_z = -1;
     s_route_target[0] = '\0';
+    /* Route cleared implies auto-walk can't continue. */
+    s_autowalk_active = 0;
+    s_autowalk_stall_frames = 0;
+}
+
+/* Turn auto-walk off. Safe to call redundantly. */
+static void autowalk_stop(const char* reason_for_tts) {
+    if (!s_autowalk_active) return;
+    s_autowalk_active = 0;
+    s_autowalk_stall_frames = 0;
+    if (reason_for_tts) pc_acc_speak_interrupt(reason_for_tts);
+}
+
+/* Called from pc_pad.c when the user supplies manual movement input.
+ * Cancels auto-walk so the player takes over cleanly. */
+void pc_acc_nav_autowalk_cancel_on_input(void) {
+    autowalk_stop("Auto-walk stopped.");
+}
+
+/* Called from pc_pad.c once per frame to request injected stick values.
+ * Writes 0,0 (no injection) when auto-walk is inactive. */
+void pc_acc_nav_get_autowalk_stick(s8* sx, s8* sy) {
+    if (sx) *sx = 0;
+    if (sy) *sy = 0;
+#if PC_NAV_AUTOWALK
+    if (!s_autowalk_active) return;
+    if (!s_route_active || s_route_seg_idx >= s_route_seg_count) return;
+    int dir = s_route_segs[s_route_seg_idx].dir;
+    /* 4-direction encoding: dx8[]/dz8[] with dz- = north.
+     * Game stick: stickY+ = up/north, stickX+ = east. */
+    if (sx) *sx = (s8)(s_dx8[dir] * 80);
+    if (sy) *sy = (s8)(-s_dz8[dir] * 80);
+#endif
 }
 
 /* Count total remaining tiles from current progress onward */
@@ -1517,9 +1563,11 @@ static int nav_tile_walkable(int ux, int uz) {
     return mCoBG_Unit2CheckNpc(ux, uz) != 0;
 }
 
-/* Manhattan distance heuristic (4-directional movement) */
+/* Weighted A* heuristic — 1.5x Manhattan distance.
+ * Slightly overestimates to strongly prefer direct routes over long detours.
+ * Trades optimal path length for much faster search and more intuitive routes. */
 static f32 nav_heuristic(int x0, int z0, int x1, int z1) {
-    return (f32)(abs(x1 - x0) + abs(z1 - z0));
+    return 1.5f * (f32)(abs(x1 - x0) + abs(z1 - z0));
 }
 
 /* Snap an unwalkable tile to the nearest walkable neighbor (spiral search).
@@ -1587,6 +1635,9 @@ static void nav_mark_house_footprint(int cx, int cz) {
 static void nav_obstacle_init(void) {
     int house_count = 0;
 
+    { FILE* dbg = fopen("nav_debug.txt", "a");
+      if (dbg) { fprintf(dbg, "=== NAV OBSTACLE INIT CALLED ===\n"); fclose(dbg); } }
+
     memset(s_obstacle, 0, NAV_GRID_SIZE);
 
     /* ------ Pass 1: FG items (trees, fences, rocks, structures) ------ */
@@ -1635,50 +1686,18 @@ static void nav_obstacle_init(void) {
         }
     }
 
-    /* ------ Pass 3: Elevation boundaries ------ */
-    if (s_terrain_ready) {
-        for (int bz = ACRE_MIN_Z; bz <= ACRE_MAX_Z; bz++) {
-            for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
-                u8 elev = s_terrain[bz][bx].elevation;
-                u8 flags = s_terrain[bz][bx].flags;
-                if (flags & TERRAIN_FLAG_SLOPE) continue;
-
-                int neighbors[][2] = {{bx,bz-1},{bx,bz+1},{bx-1,bz},{bx+1,bz}};
-                for (int n = 0; n < 4; n++) {
-                    int nbx = neighbors[n][0];
-                    int nbz = neighbors[n][1];
-                    if (nbx < ACRE_MIN_X || nbx > ACRE_MAX_X) continue;
-                    if (nbz < ACRE_MIN_Z || nbz > ACRE_MAX_Z) continue;
-
-                    u8 n_elev = s_terrain[nbz][nbx].elevation;
-                    u8 n_flags = s_terrain[nbz][nbx].flags;
-                    if (n_elev == elev) continue;
-                    if (n_flags & TERRAIN_FLAG_SLOPE) continue;
-
-                    int base_ux = bx * UT_X_NUM;
-                    int base_uz = bz * UT_Z_NUM;
-                    if (nbz < bz) {
-                        for (int ux = 0; ux < UT_X_NUM; ux++) {
-                            int idx = NAV_IDX(base_ux + ux, base_uz);
-                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
-                        }
-                    } else if (nbz > bz) {
-                        for (int ux = 0; ux < UT_X_NUM; ux++) {
-                            int idx = NAV_IDX(base_ux + ux, base_uz + UT_Z_NUM - 1);
-                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
-                        }
-                    } else if (nbx < bx) {
-                        for (int uz = 0; uz < UT_Z_NUM; uz++) {
-                            int idx = NAV_IDX(base_ux, base_uz + uz);
-                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
-                        }
-                    } else {
-                        for (int uz = 0; uz < UT_Z_NUM; uz++) {
-                            int idx = NAV_IDX(base_ux + UT_X_NUM - 1, base_uz + uz);
-                            if (!s_obstacle[idx]) s_obstacle[idx] = 'E';
-                        }
-                    }
-                }
+    /* ------ Pass 3: Cliff-face tiles (BG attribute check) ------ */
+    /* Attributes 47-58 are cliff-face geometry (cliff edges, tunnel entries).
+     * These must be blocked regardless of what mCoBG_Unit2CheckNpc reports,
+     * since NPC walkability checks don't always catch cliff-face tiles.
+     * This replaces the old acre-level elevation boundary logic with precise
+     * per-tile blocking that works for all town layouts (2-tier, 3-tier). */
+    for (int gz = ACRE_MIN_Z * UT_Z_NUM; gz < (ACRE_MAX_Z + 1) * UT_Z_NUM; gz++) {
+        for (int gx = ACRE_MIN_X * UT_X_NUM; gx < (ACRE_MAX_X + 1) * UT_X_NUM; gx++) {
+            int attr = mCoBG_UtNum2BgAttr(gx, gz);
+            if (attr >= mCoBG_ATTRIBUTE_47 && attr <= mCoBG_ATTRIBUTE_58) {
+                int idx = NAV_IDX(gx, gz);
+                if (!s_obstacle[idx]) s_obstacle[idx] = 'C';
             }
         }
     }
@@ -1693,6 +1712,32 @@ static void nav_obstacle_init(void) {
         }
     }
 
+    /* ------ Pass 5: Obstacle inflation around houses + structures ------
+     * Marks tiles adjacent to H/S cells as 'B' (buffer) so A* paths stay
+     * 1 tile clear of building walls. Without this, paths brushing right
+     * along a wall trigger collision sliding when auto-walking, which
+     * desyncs the path-vs-actual-position tracker and stalls progress.
+     * 8-way (cardinal + diagonal) covers approach from any angle. We
+     * dilate from a snapshot so the buffer doesn't cascade outward. */
+    {
+        for (int gz = 0; gz < NAV_GRID_H; gz++) {
+            for (int gx = 0; gx < NAV_GRID_W; gx++) {
+                u8 v = s_obstacle[NAV_IDX(gx, gz)];
+                if (v != 'H' && v != 'S') continue;
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (!dx && !dz) continue;
+                        int nx = gx + dx, nz = gz + dz;
+                        if (nx < 0 || nx >= NAV_GRID_W) continue;
+                        if (nz < 0 || nz >= NAV_GRID_H) continue;
+                        int idx = NAV_IDX(nx, nz);
+                        if (s_obstacle[idx] == 0) s_obstacle[idx] = 'B';
+                    }
+                }
+            }
+        }
+    }
+
     s_obstacle_ready = 1;
 
     /* ------ Debug output: open file AFTER all passes complete ------ */
@@ -1700,7 +1745,7 @@ static void nav_obstacle_init(void) {
         FILE* dbg = fopen("town_generation_debug.txt", "a");
         if (dbg) {
             int total = 0, trees = 0, fences = 0, houses = 0, structs = 0;
-            int elev = 0, water = 0, other = 0;
+            int cliff = 0, water = 0, buffer = 0, other = 0;
             for (int i = 0; i < NAV_GRID_SIZE; i++) {
                 u8 v = s_obstacle[i];
                 if (!v) continue;
@@ -1710,8 +1755,9 @@ static void nav_obstacle_init(void) {
                     case 'F': fences++;  break;
                     case 'H': houses++;  break;
                     case 'S': structs++; break;
-                    case 'E': elev++;    break;
+                    case 'C': cliff++;   break;
                     case 'W': water++;   break;
+                    case 'B': buffer++;  break;
                     default:  other++;   break;
                 }
             }
@@ -1722,8 +1768,9 @@ static void nav_obstacle_init(void) {
             fprintf(dbg, "  Fences:      %d\n", fences);
             fprintf(dbg, "  Houses:      %d  (footprints marked)\n", houses);
             fprintf(dbg, "  Structures:  %d\n", structs);
-            fprintf(dbg, "  Elevation:   %d\n", elev);
+            fprintf(dbg, "  Cliff face:  %d  (BG attr 47-58)\n", cliff);
             fprintf(dbg, "  Water/cliff: %d\n", water);
+            fprintf(dbg, "  Buffer:      %d  (1-tile dilation around H/S)\n", buffer);
             fprintf(dbg, "  Other:       %d\n", other);
 
             /* House detail listing */
@@ -1756,7 +1803,7 @@ static void nav_obstacle_init(void) {
 
             /* ASCII grid — playable area only */
             fprintf(dbg, "\n--- ASCII TOWN MAP ---\n");
-            fprintf(dbg, "Legend: .=walkable T=tree F=fence H=house S=structure E=elevation W=water X=other\n");
+            fprintf(dbg, "Legend: .=walkable T=tree F=fence H=house S=struct B=buffer C=cliff W=water X=other\n");
             fprintf(dbg, "Rows=Z(north to south), Cols=X(west to east). Acre boundaries: |/- \n\n");
 
             fprintf(dbg, "     ");
@@ -1787,6 +1834,82 @@ static void nav_obstacle_init(void) {
             }
 
             fprintf(dbg, "\n=== END OBSTACLE GRID ===\n");
+            fclose(dbg);
+        }
+    }
+
+    /* ------ Terrain + elevation debug to nav_debug.txt ------ */
+    {
+        FILE* dbg = fopen("nav_debug.txt", "a");
+        if (dbg) {
+            /* 3-tier detection result (game's own check) */
+            fprintf(dbg, "\n=== 3-TIER CHECK ===\n");
+            fprintf(dbg, "mRF_CheckFieldStep3() = %d   (1 = three-tier, 0 = two-tier)\n",
+                    mRF_CheckFieldStep3());
+            fprintf(dbg, "combi_table[0][0].height raw = %d\n",
+                    (int)Save_Get(combi_table[0][0]).height);
+
+            /* FULL 7x10 combi_table.height dump (borders + playable) */
+            fprintf(dbg, "\n=== COMBI_TABLE HEIGHTS (all 7x10, raw from save) ===\n");
+            fprintf(dbg, "     ");
+            for (int bx = 0; bx < BLOCK_X_NUM; bx++) fprintf(dbg, " bx%d", bx);
+            fprintf(dbg, "\n");
+            for (int bz = 0; bz < BLOCK_Z_NUM; bz++) {
+                fprintf(dbg, "bz%d: ", bz);
+                for (int bx = 0; bx < BLOCK_X_NUM; bx++) {
+                    fprintf(dbg, "  %d ", (int)Save_Get(combi_table[bz][bx]).height);
+                }
+                fprintf(dbg, "\n");
+            }
+
+            fprintf(dbg, "\n=== TERRAIN TABLE (elevation / flags, playable 5x6) ===\n");
+            fprintf(dbg, "Flags: R=river B=bridge C=cliff S=slope O=ocean X=border K=railroad\n");
+            fprintf(dbg, "       bx:");
+            for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++)
+                fprintf(dbg, "  %d     ", bx);
+            fprintf(dbg, "\n");
+            for (int bz = ACRE_MIN_Z; bz <= ACRE_MAX_Z; bz++) {
+                fprintf(dbg, "  bz=%d: ", bz);
+                for (int bx = ACRE_MIN_X; bx <= ACRE_MAX_X; bx++) {
+                    u8 tf = s_terrain[bz][bx].flags;
+                    u8 te = s_terrain[bz][bx].elevation;
+                    fprintf(dbg, " e%d[%c%c%c%c%c%c%c]",
+                            te,
+                            (tf & TERRAIN_FLAG_RIVER)    ? 'R' : '.',
+                            (tf & TERRAIN_FLAG_BRIDGE)   ? 'B' : '.',
+                            (tf & TERRAIN_FLAG_CLIFF)    ? 'C' : '.',
+                            (tf & TERRAIN_FLAG_SLOPE)    ? 'S' : '.',
+                            (tf & TERRAIN_FLAG_OCEAN)    ? 'O' : '.',
+                            (tf & TERRAIN_FLAG_BORDER)   ? 'X' : '.',
+                            (tf & TERRAIN_FLAG_RAILROAD) ? 'K' : '.');
+                }
+                fprintf(dbg, "\n");
+            }
+
+            /* BG attribute histogram across the full playable area.
+             * Shows which BG attributes actually appear on this save's tiles —
+             * essential for 3-tier debugging since grass-3 vs grass-4 cliff
+             * attrs differ (43-46 river-tagged, 47-50 grass-4 cliff, 55-58 grass-3 cliff corners). */
+            {
+                int histo[100]; memset(histo, 0, sizeof(histo));
+                int histo_blocked[100]; memset(histo_blocked, 0, sizeof(histo_blocked));
+                for (int gz = ACRE_MIN_Z * UT_Z_NUM; gz < (ACRE_MAX_Z + 1) * UT_Z_NUM; gz++) {
+                    for (int gx = ACRE_MIN_X * UT_X_NUM; gx < (ACRE_MAX_X + 1) * UT_X_NUM; gx++) {
+                        int attr = mCoBG_UtNum2BgAttr(gx, gz);
+                        if (attr < 0 || attr >= 100) continue;
+                        histo[attr]++;
+                        if (!mCoBG_Unit2CheckNpc(gx, gz)) histo_blocked[attr]++;
+                    }
+                }
+                fprintf(dbg, "\n=== BG ATTRIBUTE HISTOGRAM (playable area) ===\n");
+                fprintf(dbg, "attr   count  blocked  (blocked = mCoBG_Unit2CheckNpc returns 0)\n");
+                for (int a = 0; a < 100; a++) {
+                    if (histo[a] == 0) continue;
+                    fprintf(dbg, "  %3d:  %5d   %5d\n", a, histo[a], histo_blocked[a]);
+                }
+            }
+
+            fprintf(dbg, "\n=== END TERRAIN TABLE ===\n\n");
             fclose(dbg);
         }
     }
@@ -1931,6 +2054,71 @@ static int nav_pathfind(int sx, int sz, int gx, int gz, PathSeg* segs, int max_s
             fprintf(dbg, "[PATH] start tile (%d,%d) -> goal tile (%d,%d)\n", sx, sz, gx, gz);
             if (!found) {
                 fprintf(dbg, "[PATH] NO PATH FOUND\n");
+                /* Dump obstacle grid for bounding box between start and goal */
+                {
+                    int min_x = (sx < gx ? sx : gx) - 2;
+                    int max_x = (sx > gx ? sx : gx) + 2;
+                    int min_z = (sz < gz ? sz : gz) - 2;
+                    int max_z = (sz > gz ? sz : gz) + 2;
+                    if (min_x < 0) min_x = 0;
+                    if (min_z < 0) min_z = 0;
+                    if (max_x >= NAV_GRID_W) max_x = NAV_GRID_W - 1;
+                    if (max_z >= NAV_GRID_H) max_z = NAV_GRID_H - 1;
+
+                    fprintf(dbg, "[PATH] obstacle dump for region x=[%d..%d] z=[%d..%d]\n",
+                            min_x, max_x, min_z, max_z);
+                    fprintf(dbg, "[PATH] Legend: .=walkable T=tree F=fence H=house S=struct E=elev W=water\n");
+                    fprintf(dbg, "[PATH] *=start #=goal  Acre boundaries shown with |\n");
+
+                    /* Column header */
+                    fprintf(dbg, "      ");
+                    for (int x = min_x; x <= max_x; x++) {
+                        if (x % 10 == 0) fprintf(dbg, "%d", (x / 10) % 10);
+                        else fprintf(dbg, " ");
+                    }
+                    fprintf(dbg, "\n      ");
+                    for (int x = min_x; x <= max_x; x++)
+                        fprintf(dbg, "%d", x % 10);
+                    fprintf(dbg, "\n");
+
+                    /* Grid rows */
+                    for (int z = min_z; z <= max_z; z++) {
+                        fprintf(dbg, "%4d: ", z);
+                        for (int x = min_x; x <= max_x; x++) {
+                            if (x == sx && z == sz) {
+                                fprintf(dbg, "*");
+                            } else if (x == gx && z == gz) {
+                                fprintf(dbg, "#");
+                            } else {
+                                int idx = NAV_IDX(x, z);
+                                u8 v = s_obstacle[idx];
+                                fprintf(dbg, "%c", v ? (char)v : '.');
+                            }
+                        }
+                        fprintf(dbg, "  acre_z=%d\n", z / UT_Z_NUM);
+                    }
+
+                    /* Summary: count blocked tiles by type in this region */
+                    int b_total = 0, b_tree = 0, b_elev = 0, b_water = 0, b_other = 0;
+                    for (int z = min_z; z <= max_z; z++) {
+                        for (int x = min_x; x <= max_x; x++) {
+                            u8 v = s_obstacle[NAV_IDX(x, z)];
+                            if (!v) continue;
+                            b_total++;
+                            switch (v) {
+                                case 'T': b_tree++; break;
+                                case 'E': b_elev++; break;
+                                case 'W': b_water++; break;
+                                default: b_other++; break;
+                            }
+                        }
+                    }
+                    int region_size = (max_x - min_x + 1) * (max_z - min_z + 1);
+                    fprintf(dbg, "[PATH] region blocked: %d / %d (%.0f%%)\n",
+                            b_total, region_size, 100.0f * b_total / region_size);
+                    fprintf(dbg, "[PATH]   trees=%d elev=%d water=%d other=%d\n",
+                            b_tree, b_elev, b_water, b_other);
+                }
             } else if (seg_count == 0) {
                 fprintf(dbg, "[PATH] already at goal\n");
             } else {
@@ -1999,6 +2187,22 @@ void pc_acc_nav_update(void) {
             if (player) {
                 int tx, tz;
                 if (mFI_Wpos2UtNum(&tx, &tz, player->actor_class.world.position)) {
+                    /* Auto-walk stall detection: cancel if we've been holding
+                     * stick input but haven't advanced in a while. Something is
+                     * blocking us (NPC, collision, unexpected geometry). */
+                    if (s_autowalk_active) {
+                        if (tx != s_autowalk_last_tile_x || tz != s_autowalk_last_tile_z) {
+                            s_autowalk_last_tile_x = tx;
+                            s_autowalk_last_tile_z = tz;
+                            s_autowalk_stall_frames = 0;
+                        } else {
+                            s_autowalk_stall_frames++;
+                            if (s_autowalk_stall_frames > AUTOWALK_STALL_LIMIT) {
+                                autowalk_stop("Auto-walk blocked.");
+                            }
+                        }
+                    }
+
                     if (s_prev_tile_x >= 0 && (tx != s_prev_tile_x || tz != s_prev_tile_z)) {
                         nav_play_tick();
 
@@ -2092,9 +2296,66 @@ void pc_acc_nav_update(void) {
     if (!keys) return;
 
     u8 shift = keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT];
+    u8 ctrl  = keys[SDL_SCANCODE_LCTRL]  || keys[SDL_SCANCODE_RCTRL];
     u8 l_key = keys[SDL_SCANCODE_L];
     u8 j_key = keys[SDL_SCANCODE_J];
     u8 k_key = keys[SDL_SCANCODE_K];
+
+    /* Ctrl+K: toggle auto-walk. Engaging requires an active route; if none,
+     * we generate one from the current selection first (same as plain K). */
+#if PC_NAV_AUTOWALK
+    if (ctrl && k_key && !s_prev_k) {
+        if (s_autowalk_active) {
+            autowalk_stop("Auto-walk stopped.");
+        } else {
+            /* Ensure a valid route exists before engaging. */
+            if (!s_route_active) {
+                if (s_result_count == 0 || s_nav_index < 0) {
+                    pc_acc_speak_interrupt("Select a target first.");
+                } else if (Save_Get(scene_no) != SCENE_FG) {
+                    pc_acc_speak_interrupt("Auto-walk only works outdoors.");
+                } else {
+                    NavResult* r = &s_results[s_nav_index];
+                    GAME_PLAY* play_aw = (GAME_PLAY*)gamePT;
+                    PLAYER_ACTOR* player_aw = play_aw ? get_player_actor_withoutCheck(play_aw) : NULL;
+                    if (player_aw) {
+                        xyz_t p_pos = player_aw->actor_class.world.position;
+                        int p_ux, p_uz, t_ux, t_uz;
+                        if (mFI_Wpos2UtNum(&p_ux, &p_uz, p_pos) &&
+                            mFI_Wpos2UtNum(&t_ux, &t_uz, r->world_pos)) {
+                            int result = nav_pathfind(p_ux, p_uz, t_ux, t_uz,
+                                                      s_route_segs, MAX_PATH_SEGS);
+                            if (result > 0) {
+                                s_route_seg_count = result;
+                                s_route_seg_idx = 0;
+                                s_route_tiles_done = 0;
+                                s_route_active = 1;
+                                s_route_tile_x = p_ux;
+                                s_route_tile_z = p_uz;
+                                s_route_goal_x = t_ux;
+                                s_route_goal_z = t_uz;
+                                snprintf(s_route_target, sizeof(s_route_target), "%s", r->name);
+                            }
+                        }
+                    }
+                }
+            }
+            if (s_route_active) {
+                s_autowalk_active = 1;
+                s_autowalk_stall_frames = 0;
+                s_autowalk_last_tile_x = s_route_tile_x;
+                s_autowalk_last_tile_z = s_route_tile_z;
+                char buf[128];
+                snprintf(buf, sizeof(buf), "Auto-walking to %s.", s_route_target);
+                pc_acc_speak_interrupt(buf);
+            }
+        }
+        s_prev_k = k_key;
+        return; /* consume the key press; don't fall through to K/Shift+K */
+    }
+#else
+    (void)ctrl; /* unused when auto-walk is disabled */
+#endif
 
     /* Shift+L: next category */
     if (shift && l_key && !s_prev_l) {
@@ -2287,4 +2548,6 @@ void pc_acc_nav_build_obstacle_grid(void) {
 void pc_acc_nav_update(void) {}
 int pc_acc_nav_is_active(void) { return 0; }
 void pc_acc_nav_build_obstacle_grid(void) {}
+void pc_acc_nav_get_autowalk_stick(s8* sx, s8* sy) { if (sx) *sx = 0; if (sy) *sy = 0; }
+void pc_acc_nav_autowalk_cancel_on_input(void) {}
 #endif

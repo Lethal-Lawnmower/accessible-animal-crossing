@@ -22,4 +22,11 @@ int pc_acc_nav_is_active(void);
  * Call after mFM_SetBlockKindLoadCombi() and FG data is finalized. */
 void pc_acc_nav_build_obstacle_grid(void);
 
+/* Auto-walk (Ctrl+K): called by pc_pad.c each frame to retrieve injected
+ * stick values. Writes 0,0 when auto-walk is inactive. */
+void pc_acc_nav_get_autowalk_stick(s8* sx, s8* sy);
+
+/* Auto-walk cancel signal from pc_pad.c when the user provides manual input. */
+void pc_acc_nav_autowalk_cancel_on_input(void);
+
 #endif
