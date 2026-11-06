@@ -15,10 +15,13 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementText.h>
+#include <borealis/log.hpp>
 
 #include <string>
 
 namespace {
+
+constexpr borealis::Log Log{"access::host_menu"};
 
 Rml::Element* s_last_focus = nullptr;
 std::string s_last_text;
@@ -137,7 +140,10 @@ std::string help_text(Rml::Element* focus) {
 void acc_host_menu_update() {
     Rml::Context* context = aurora::rmlui::get_context();
     Rml::Element* focus = context ? context->GetFocusElement() : nullptr;
-    if (!focus || focus == context->GetRootElement() || !focus->IsVisible()) {
+    // Hidden documents can still hold focus: the menu bar is pushed hidden
+    // at startup with its first tab ("Settings") focused, which was spoken
+    // before the title screen. Check the ancestors too.
+    if (!focus || focus == context->GetRootElement() || !focus->IsVisible(true)) {
         s_last_focus = nullptr;
         s_last_text.clear();
         s_last_value.clear();
@@ -148,6 +154,7 @@ void acc_host_menu_update() {
     std::string value;
     std::string text = describe(focus, &value);
     if (focus != s_last_focus) {
+        Log.debug("focus <{}> id '{}'", focus->GetTagName(), focus->GetId());
         if (!text.empty()) {
             acc_speak_interrupt(text.c_str());
         }
