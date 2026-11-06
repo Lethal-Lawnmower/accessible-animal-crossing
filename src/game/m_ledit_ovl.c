@@ -7,6 +7,9 @@
 #include "m_font.h"
 #include "m_common_data.h"
 #include "m_debug.h"
+#ifdef TARGET_PC
+#include "access/text_editor.h" /* accessibility */
+#endif
 
 static u8 mLE_player_title[16] = "Enter your name.";
 static u8 mLE_country_title[18] = "Enter Destination.";
@@ -302,6 +305,10 @@ static void mLE_ledit_ovl_init(Submenu* submenu) {
     menu_info->next_proc_status = mSM_OVL_PROC_WAIT;
     menu_info->move_drt = mSM_MOVE_IN_TOP;
     
+#ifdef TARGET_PC
+    /* accessibility: announce this window's own prompt ("Enter your name.") */
+    acc_text_editor_set_title(mLE_win_data[menu_info->data0].title_str, mLE_win_data[menu_info->data0].title_len);
+#endif
     mSM_open_submenu_new2(submenu, mSM_OVL_EDITOR, mED_TYPE_LEDIT, max, str, mLE_win_data[menu_info->data0].edit_col_max);
 }
 

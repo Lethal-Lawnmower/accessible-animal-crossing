@@ -87,7 +87,9 @@ set(ACCESS_SOURCES
     ${ACCESS_ROOT}/choice.c
     ${ACCESS_ROOT}/dialogue.c
     ${ACCESS_ROOT}/game_text.c
+    ${ACCESS_ROOT}/item_menu.c
     ${ACCESS_ROOT}/speech.cpp
+    ${ACCESS_ROOT}/text_editor.c
 )
 target_sources(acgc PRIVATE ${ACCESS_SOURCES})
 set_source_files_properties(${ACCESS_SOURCES} PROPERTIES COMPILE_OPTIONS "${PC_C_WARN_FLAGS}")

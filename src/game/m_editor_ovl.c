@@ -18,6 +18,7 @@
 
 #ifdef TARGET_PC
 #include "game_editor.h"
+#include "access/text_editor.h" /* accessibility */
 #endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
@@ -2071,6 +2072,10 @@ static void mED_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     mED_get_col_line_width(menu_info, editor_ovl, &editor_ovl->_22, &editor_ovl->_24, &editor_ovl->_26,
                            editor_ovl->cursor_idx);
     mED_check_line_over(editor_ovl);
+#ifdef TARGET_PC
+    acc_text_editor_update(editor_ovl,
+                           (u8)mED_get_code(editor_ovl, editor_ovl->select_col, editor_ovl->select_row)); /* accessibility */
+#endif
 }
 
 static void mED_move_Wait(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -2814,6 +2819,13 @@ extern void mED_editor_ovl_construct(Submenu* submenu) {
     mED_editor_ovl_set_proc(submenu);
     submenu->overlay->editor_ovl->end_code_draw = &mED_endCode_draw;
     submenu->overlay->editor_ovl->cursol_draw = &mED_cursol_draw;
+#ifdef TARGET_PC
+    {
+        /* accessibility */
+        mED_Ovl_c* ed = submenu->overlay->editor_ovl;
+        acc_text_editor_opened(ed, menu_info->data0, (u8)mED_get_code(ed, ed->select_col, ed->select_row));
+    }
+#endif
 }
 
 extern void mED_editor_ovl_destruct(Submenu* submenu) {

@@ -2,6 +2,7 @@
 
 #ifdef TARGET_PC
 #include "game_pointer.h"
+#include "access/item_menu.h" /* accessibility */
 #endif
 
 #include "m_common_data.h"
@@ -2213,6 +2214,12 @@ static void mTG_init_tag_data_item_win(Submenu* submenu) {
             tag->arrow_dir = 0;
         }
     }
+
+#ifdef TARGET_PC
+    /* accessibility */
+    acc_item_slot_focused(tag->table, idx, mTG_table_data[tag->table].col_num * mTG_table_data[tag->table].row_num,
+                          tag->str0, tag->str1, tag->str2, mTG_TAG_SEL_STRING_LEN);
+#endif
 }
 
 static void mTG_init_tag_data_select_win_only(mTG_tag_c* tag, mTG_tag_data_c* data) {
@@ -2495,6 +2502,18 @@ static void mTG_init_tag_data(Submenu* submenu, int table, int type, f32 base_x,
         } else {
             mTG_init_tag_data_select_win_after_select(tag, parent_tag, tag_data);
         }
+
+#ifdef TARGET_PC
+        /* accessibility: speak the action popup's labels */
+        {
+            const u8* labels[16];
+            int n = tag_data->lines > 16 ? 16 : tag_data->lines;
+            for (int i = 0; i < n; i++) {
+                labels[i] = tag_data->words[i]->str;
+            }
+            acc_item_actions_opened(labels, n, tag->tag_row, mTG_TAG_STR_LEN);
+        }
+#endif
     }
 }
 
@@ -6572,6 +6591,9 @@ static int mTG_move_cursol_between_table_inventory(Submenu* submenu, mTG_tag_c* 
 static int mTG_move_cursol_base(Submenu* submenu, mTG_tag_c* tag, mSM_MenuInfo_c* menu_info) {
     u32 trigger = submenu->overlay->menu_control.trigger;
     int res = FALSE;
+#ifdef TARGET_PC
+    const int acc_old_table = tag->table; /* accessibility */
+#endif
 
     if ((trigger & (BUTTON_CLEFT | BUTTON_CDOWN | BUTTON_CUP | BUTTON_CRIGHT)) != 0 ||
         (tag->table == mTG_TABLE_CATALOG &&
@@ -6622,6 +6644,11 @@ static int mTG_move_cursol_base(Submenu* submenu, mTG_tag_c* tag, mSM_MenuInfo_c
         }
     }
 
+#ifdef TARGET_PC
+    if (res && tag->table != acc_old_table) {
+        acc_item_section_changed(tag->table); /* accessibility */
+    }
+#endif
     return res;
 }
 
@@ -7987,6 +8014,9 @@ static void mTG_select_tag_base(Submenu* submenu, mSM_MenuInfo_c* menu_info, mTG
         int max = mTG_label_table[tag->type].lines - 1;
 
         if (trigger & (BUTTON_CDOWN | BUTTON_CUP)) {
+#ifdef TARGET_PC
+            const int acc_old_row = tag->tag_row; /* accessibility */
+#endif
             if (trigger & (BUTTON_CDOWN)) {
                 if (tag->tag_row < max) {
                     tag->tag_row++;
@@ -7998,6 +8028,12 @@ static void mTG_select_tag_base(Submenu* submenu, mSM_MenuInfo_c* menu_info, mTG
                     sAdo_SysTrgStart(NA_SE_CURSOL);
                 }
             }
+#ifdef TARGET_PC
+            if (tag->tag_row != acc_old_row) {
+                acc_item_action_moved(mTG_label_table[tag->type].words[tag->tag_row]->str, mTG_TAG_STR_LEN,
+                                      tag->tag_row, max + 1); /* accessibility */
+            }
+#endif
         }
     }
 }
@@ -9455,6 +9491,9 @@ extern void mTG_tag_ovl_construct(Submenu* submenu) {
 
         tag_ovl_p->sel_tag_idx = -1;
         tag_ovl_p->ret_tag_idx = -1;
+#ifdef TARGET_PC
+        acc_item_menu_opened(submenu->menu_type); /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
         tag_ovl_p->mouse_x = 160;
         tag_ovl_p->mouse_y = 120;

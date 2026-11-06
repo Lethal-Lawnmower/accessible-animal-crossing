@@ -106,3 +106,37 @@ file is buffered until exit).
 Not established: what NVDA actually said aloud (this checked the text handed
 to Prism, not audio), and pages using the random number or the other
 insertion codes, which this scene did not contain.
+
+## Item menus (tag overlay)
+
+Code: `pc/src/access/item_menu.c`, hooks in `src/game/m_tag_ovl.c`:
+end of `mTG_init_tag_data_item_win` (slot focus), `mTG_init_tag_data`
+(action popup), `mTG_move_cursol_base` (section change), `mTG_select_tag_base`
+(action highlight), `mTG_tag_ovl_construct` (menu name).
+
+A slot is read as its label lines joined, then "n of total" from the
+section's grid size (`mTG_table_data`). A menu or section name interrupts;
+the slot that follows is queued behind it so it is not cut off. Status:
+built, not runtime-checked.
+
+## Text editor
+
+Code: `pc/src/access/text_editor.c`, hooks at the end of
+`mED_editor_ovl_construct` and `mED_move_Play` in `src/game/m_editor_ovl.c`.
+The name-entry window (`src/game/m_ledit_ovl.c`) hands over its own prompt.
+
+Spoken: on opening, the prompt or editor kind, letter mode and current text;
+typed characters (punctuation spelled out, capitals as "capital X");
+"deleted X" on backspace; the character under the text cursor when it moves;
+the grid character when the on-screen grid cursor moves; mode changes.
+
+Runtime check, 2026-11-06 (same method as above): new game to Rover on the
+train. Logged "Text entry, lowercase, empty. exclamation mark" on opening (a
+generic name, since replaced by the window's prompt), then "a", "d",
+"deleted d" for typing a, d, Backspace. The same run confirmed insertion
+codes: "Is it... Let's see now... 11:31 p.m. on Friday, November 6th, 2026?",
+plus both train choice windows.
+
+Not established: arrow-key text cursor moves (the test sent non-extended
+arrow key codes, and nothing was logged), and the on-screen grid with a
+controller.

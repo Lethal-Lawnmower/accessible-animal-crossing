@@ -15,8 +15,8 @@ not runtime-checked), **to port** (exists in the old project, not here yet),
 | Dialogue / message window | done | checked with K.K. intro; see [speech.md](speech.md) |
 | Choice windows | done | checked with K.K. intro |
 | Title screen ("Press START!") | new | nothing is announced |
-| Inventory and other item menus (tag overlay) | to port | old: item names, sections, action popup, menu names |
-| Keyboard / text editor (names, letters) | to port | old: character under cursor, typed and deleted characters |
+| Inventory and other item menus (tag overlay) | built | `pc/src/access/item_menu.c`: slot text (all 3 label lines) with position, section and menu names, action popup. Not yet runtime-checked |
+| Keyboard / text editor (names, letters) | done | `pc/src/access/text_editor.c`. Checked on the train name screen: opening, PC-keyboard typing ("a", "d"), backspace ("deleted d"). The window prompt ("Enter your name.") is now used as the title; that change is built, not re-run |
 | Clock setting (time-in) | to port | |
 | Town map | to port | old: acre, building, residents |
 | Address book | to port | |
@@ -28,6 +28,13 @@ not runtime-checked), **to port** (exists in the old project, not here yet),
 | Birthday entry | to port | |
 | "Is this OK?" edit confirmation | to port | |
 | Town tune editor | to port | |
+
+## Other submenus never covered
+
+From the `mSM_OVL_*` list in `include/m_submenu.h`. The previous project had
+no speech for these: diary, calendar, password make and check, house gyroid
+message board (`HBOARD`), memory card letters and designs (`CPMAIL`,
+`CPEDIT`, `CPORIGINAL`), pattern design (`DESIGN`), Game Boy Advance.
 
 ## Nookery's own screens (new in the upstream port)
 
@@ -56,3 +63,7 @@ rewritten separately.
 | Function | Status |
 |---|---|
 | Repeat last dialogue page | built (`acc_dialogue_repeat`), no key bound yet |
+| Read back the whole text in the editor | built (`acc_text_editor_read_all`), no key bound yet |
+
+Note: the port's own "Keyboard typing" toggle (Tab) appears on the editor
+screen; while it is on, Space types a space instead of pressing A.
