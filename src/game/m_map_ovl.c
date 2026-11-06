@@ -11,6 +11,10 @@
 #include "sys_matrix.h"
 #include "m_malloc.h"
 #include "m_common_data.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#include "access/game_text.h"
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -894,6 +898,14 @@ static void mMP_set_init_data(mMP_Ovl_c* map_ovl, mSM_MenuInfo_c* menu_info) {
     mMP_set_field_data(map_ovl);
 
     map_ovl->land_name_str_len = mMl_strlen(Save_Get(land_info.name), LAND_NAME_SIZE, CHAR_SPACE);
+#ifdef TARGET_PC
+    {
+        /* accessibility */
+        char town[48];
+        acc_game_field_to_utf8(Save_Get(land_info.name), map_ovl->land_name_str_len, town, sizeof(town));
+        acc_map_opened(town);
+    }
+#endif
 }
 
 static void mMP_move_Move(Submenu* submenu, mSM_MenuInfo_c* menu) {
@@ -988,6 +1000,46 @@ static void mMP_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu) {
         menu->proc_status = 2; // TODO: enum & name
         sAdo_SysTrgStart(NA_SE_CURSOL);
     }
+
+#ifdef TARGET_PC
+    {
+        /* accessibility: what the map shows on the selected acre */
+        mMP_LabelInfo_c* li = &map_ovl->label_info[map_ovl->sel_bz][map_ovl->sel_bx];
+        mMP_Label_c* label = (li->label_no >= 0 && li->label_no < mMP_LABEL_NUM) ? mMP_label_data[li->label_no] : NULL;
+        char block[192];
+        int pos = 0;
+        block[0] = 0;
+        if (label != NULL) {
+            for (int w = 0; w < mMP_LABEL_WORD_NUM; w++) {
+                mMP_LabelWord_c* word = label->words[w];
+                char part[64];
+                if (word == NULL) {
+                    continue;
+                }
+                if (word->str == NULL) {
+                    /* resident names (villagers or players) */
+                    for (int r = 0; r < li->label_cnt && r < mMP_RESIDENTS_PER_BLOCK_MAX; r++) {
+                        if (li->residents[r] == NULL) {
+                            continue;
+                        }
+                        acc_game_field_to_utf8(li->residents[r]->name, PLAYER_NAME_LEN, part, sizeof(part));
+                        if (part[0]) {
+                            acc_text_append(block, sizeof(block), &pos, pos ? ", " : "");
+                            acc_text_append(block, sizeof(block), &pos, part);
+                        }
+                    }
+                } else {
+                    acc_game_field_to_utf8(word->str, word->str_len, part, sizeof(part));
+                    if (part[0]) {
+                        acc_text_append(block, sizeof(block), &pos, pos ? " " : "");
+                        acc_text_append(block, sizeof(block), &pos, part);
+                    }
+                }
+            }
+        }
+        acc_map_update(map_ovl->sel_bx, map_ovl->sel_bz, map_ovl->player_bx, map_ovl->player_bz, block);
+    }
+#endif
 
 #ifdef TARGET_PC
     map_ovl->cursor_frame += (f32)gamePT->graph->dt_num_60fps_frames;

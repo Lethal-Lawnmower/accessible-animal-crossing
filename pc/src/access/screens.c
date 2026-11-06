@@ -345,6 +345,47 @@ void acc_tune_clear_update(int clearing, int clear_choice) {
     s_tune_choice = clear_choice;
 }
 
+/* ---- Town map ------------------------------------------------------------- */
+
+static int s_map_fresh = FALSE;
+static int s_map_col = -1;
+static int s_map_row = -1;
+static char s_map_town[48];
+
+void acc_map_opened(const char* town_name) {
+    s_map_fresh = TRUE;
+    s_map_col = s_map_row = -1;
+    snprintf(s_map_town, sizeof(s_map_town), "%s", town_name ? town_name : "");
+}
+
+void acc_map_update(int col, int row, int player_col, int player_row, const char* block_text) {
+    char text[256];
+    int pos = 0;
+    char where[48];
+
+    if (!s_map_fresh && col == s_map_col && row == s_map_row) {
+        return;
+    }
+    text[0] = '\0';
+    if (s_map_fresh && s_map_town[0]) {
+        acc_text_append(text, sizeof(text), &pos, s_map_town);
+        acc_text_append(text, sizeof(text), &pos, " map. ");
+    }
+    snprintf(where, sizeof(where), "%c%d", 'A' + row, col + 1);
+    acc_text_append(text, sizeof(text), &pos, where);
+    if (col == player_col && row == player_row) {
+        acc_text_append(text, sizeof(text), &pos, ", you are here");
+    }
+    if (block_text && block_text[0]) {
+        acc_text_append(text, sizeof(text), &pos, ", ");
+        acc_text_append(text, sizeof(text), &pos, block_text);
+    }
+    acc_speak_interrupt(text);
+    s_map_fresh = FALSE;
+    s_map_col = col;
+    s_map_row = row;
+}
+
 /* ---- Popups -------------------------------------------------------------- */
 
 void acc_popup_lines(const u8* const* lines, const int* lengths, int count) {

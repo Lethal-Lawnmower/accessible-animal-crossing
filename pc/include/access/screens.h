@@ -44,6 +44,13 @@ void acc_tune_opened(void);
 void acc_tune_update(int cursor, const u8* melody);
 void acc_tune_clear_update(int clearing, int clear_choice);
 
+/* Town map (src/game/m_map_ovl.c), called every frame while the map is
+ * interactive. block_text is what the map shows for the selected acre (its
+ * label words or resident names, already UTF-8). Rows are lettered from the
+ * top (A) and columns numbered from the left (1). */
+void acc_map_opened(const char* town_name);
+void acc_map_update(int col, int row, int player_col, int player_row, const char* block_text);
+
 /* A popup made of text lines (warnings, memory card notices). */
 void acc_popup_lines(const u8* const* lines, const int* lengths, int count);
 
