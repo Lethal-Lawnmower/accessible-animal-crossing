@@ -1,5 +1,10 @@
 # Accessibility rewrite: scope, status, and decisions
 
+Topic documents:
+
+- [coverage.md](coverage.md): which screens speak, and what is left
+- [speech.md](speech.md): Prism speech output, dialogue and choice speech
+
 ## Goal
 
 Make Animal Crossing (GameCube) fully playable by blind and visually impaired
@@ -43,7 +48,10 @@ they are. Accessibility is added alongside them.
 - 2026-11-06: repository created from the fresh upstream clone and pushed to
   branch `rewrite` of the existing GitHub repository.
 - 2026-11-06: the unmodified port builds and starts on Windows 11 (x64).
-  No accessibility code exists yet. See "Windows build check" below.
+  See "Windows build check" below.
+- 2026-11-06: Prism speech output, dialogue speech and choice speech
+  implemented and checked in a real run with NVDA (K.K. intro). See
+  [speech.md](speech.md). Menus are next; see [coverage.md](coverage.md).
 
 ## Windows build check (2026-11-06)
 
@@ -83,14 +91,17 @@ booting the game.
   completely.
 - 2026-11-06, user: everything goes to GitHub from day one, including all code
   commits.
+- 2026-11-06, user: investigate the old project's menus, UI, NPC dialogue,
+  all dialogue, options and keyboard, carry them over to the new port, and
+  look for screens that were never covered.
 - 2026-11-06, user: reuse the existing public repository
   `Lethal-Lawnmower/accessible-animal-crossing`. The rewrite lives on its own
   branch, `rewrite`. The old `master` branch is left unchanged.
 
 ## Next steps
 
-1. Inventory the old speech and menu modules: what each one announces and which
-   game hooks it uses.
-2. Integrate Prism as the speech backend.
-3. Port the menu speech module by module.
+1. Port the menu speech module by module (inventory first), checking each in
+   a real run. Order and status are in [coverage.md](coverage.md).
+2. Add a repeat hotkey and the title screen announcement.
+3. Make the port's own RmlUi menus (prelaunch, settings) speak.
 4. Design the new navigation from the game's own data structures.

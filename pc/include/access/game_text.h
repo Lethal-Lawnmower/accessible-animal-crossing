@@ -5,8 +5,9 @@
  * the rest are accented letters, typographic quotes and picture symbols.
  * Picture symbols become short spoken words ("heart", "music note").
  *
- * This decodes plain text only. Message control codes (0x7F ...) are handled
- * by the dialogue reader, which knows the message context. */
+ * Embedded control codes (0x7F ...) and message tags are skipped with their
+ * parameters. Codes that insert text (names, items) are expanded by the
+ * dialogue reader, which knows the message context. */
 #ifndef ACCESS_GAME_TEXT_H
 #define ACCESS_GAME_TEXT_H
 

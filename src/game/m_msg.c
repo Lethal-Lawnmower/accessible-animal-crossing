@@ -13,6 +13,7 @@
 #ifdef TARGET_PC
 #include "pc_bswap.h"
 #include "pc_settings.h"
+#include "access/dialogue.h" /* accessibility */
 #endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"

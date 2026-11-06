@@ -2,6 +2,7 @@
 
 #ifdef TARGET_PC
 #include "game_pointer.h"
+#include "access/choice.h" /* accessibility */
 #endif
 
 #include "audio.h"

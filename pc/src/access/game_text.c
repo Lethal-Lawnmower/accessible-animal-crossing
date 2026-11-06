@@ -228,11 +228,18 @@ int acc_game_text_to_utf8(const u8* src, int src_len, char* dst, int dst_size) {
     if (!src) {
         return 0;
     }
-    for (int i = 0; i < src_len; i++) {
+    for (int i = 0; i < src_len;) {
+        if (src[i] == CHAR_CONTROL_CODE || src[i] == CHAR_MESSAGE_TAG) {
+            /* Skip embedded codes (colours etc.) with their parameters. */
+            int size = (i + 1 < src_len) ? mFont_CodeSize_idx_get((u8*)src, i) : 1;
+            i += size > 0 ? size : 1;
+            continue;
+        }
         const char* mapped = s_game_chars[src[i]];
         if (mapped) {
             acc_text_append(dst, dst_size, &pos, mapped);
         }
+        i++;
     }
     return pos;
 }
