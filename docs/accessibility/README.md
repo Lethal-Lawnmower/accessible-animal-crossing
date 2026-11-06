@@ -41,8 +41,39 @@ they are. Accessibility is added alongside them.
 ## Current status
 
 - 2026-11-06: repository created from the fresh upstream clone and pushed to
-  branch `rewrite` of the existing GitHub repository. Nothing has been
-  built, run, or tested here yet. No accessibility code exists yet.
+  branch `rewrite` of the existing GitHub repository.
+- 2026-11-06: the unmodified port builds and starts on Windows 11 (x64).
+  No accessibility code exists yet. See "Windows build check" below.
+
+## Windows build check (2026-11-06)
+
+Source: commit `2d1dc4bd` plus this branch's documentation commits. No game code
+was changed.
+
+Build: `tools\build-windows-msvc.bat` (preset `windows-msvc-relwithdebinfo`).
+It finds Visual Studio with vswhere and puts Visual Studio's own CMake and Ninja
+first on PATH. Output: `build\windows-msvc-relwithdebinfo\bin\Nookery.exe`.
+
+- Visual Studio 2022 Build Tools (MSVC 14.44): build succeeded, all 4,751 steps.
+- Visual Studio 2026 Build Tools (MSVC 14.51), which the script picks as the
+  newest: build succeeded, all 4,751 steps.
+- First attempt failed: a third-party CMake 3.31.12 earlier on PATH produced
+  `fatal error RC1107` when compiling zlib-ng's resource file. The same `rc.exe`
+  command succeeded when run directly. Using Visual Studio's bundled CMake
+  (3.31.6-msvc6) fixed it. The script now does this automatically.
+
+Runtime check: launched with a GAFE01 Rev 0 disc image passed on the command
+line, with `--user-dir` and `--log-dir` pointing at a throwaway folder, for
+20 to 25 seconds, then force-closed. This was done twice, once per build.
+
+- The process stayed running and opened a window titled `Nookery`.
+- The renderer was D3D12. The log had no warning, error, or fatal lines.
+- The log reached `[PC] boot: calling initial_menu_init` (and `dvderr_init` in
+  the first run).
+
+Not established: this check did not confirm the title screen, play any
+gameplay, or check audio by ear. It shows only that the build starts and begins
+booting the game.
 
 ## Decision log
 
@@ -58,9 +89,8 @@ they are. Accessibility is added alongside them.
 
 ## Next steps
 
-1. Build the unmodified port on Windows and confirm that it runs.
-2. Inventory the old speech and menu modules: what each one announces and which
+1. Inventory the old speech and menu modules: what each one announces and which
    game hooks it uses.
-3. Integrate Prism as the speech backend.
-4. Port the menu speech module by module.
-5. Design the new navigation from the game's own data structures.
+2. Integrate Prism as the speech backend.
+3. Port the menu speech module by module.
+4. Design the new navigation from the game's own data structures.
