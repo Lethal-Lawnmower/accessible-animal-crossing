@@ -504,6 +504,9 @@ target_link_libraries(acgc PRIVATE
     aurora::vi
 )
 
+# Accessibility layer (Prism speech, access/ sources). See cmake/Accessibility.cmake.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Accessibility.cmake)
+
 set_target_properties(acgc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )

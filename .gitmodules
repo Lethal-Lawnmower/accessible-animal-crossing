@@ -4,3 +4,6 @@
 [submodule "extern/borealis"]
 	path = extern/borealis
 	url = https://github.com/encounter/borealis.git
+[submodule "extern/prism"]
+	path = extern/prism
+	url = https://github.com/ethindp/prism.git

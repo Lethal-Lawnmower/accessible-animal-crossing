@@ -15,6 +15,7 @@
 #include "acgc/game_editor.hpp"
 #include "acgc/game_pointer.hpp"
 #include "aurora_debug.h"
+#include "access/speech.h"
 #include "acgc/app_info.hpp"
 #include "acgc/controller_ports.hpp"
 #include "acgc/input_profiles.hpp"
@@ -509,6 +510,12 @@ int main(int argc, char* argv[]) {
     } else {
         MainLog.warn("File logging is unavailable; continuing with console logging");
     }
+    // Accessibility: start Prism speech early so the prelaunch menu can talk.
+    // The guard stops it on every exit path, before logging shuts down.
+    struct AccessSpeechGuard {
+        AccessSpeechGuard() { acc_speech_init(); }
+        ~AccessSpeechGuard() { acc_speech_shutdown(); }
+    } access_speech_guard;
 
     const std::string user_path = borealis::io::fs_path_to_string(data_paths.userPath);
     const std::string cache_path = borealis::io::fs_path_to_string(data_paths.cachePath);
