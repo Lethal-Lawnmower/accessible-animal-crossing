@@ -48,3 +48,17 @@ include/compiler/gcc/stdlib.h
 
 # Release files
 dist/
+
+# Game material: never commit disc images, ROMs or saves
+*.iso
+*.ISO
+*.gcm
+*.rvz
+*.ciso
+*.wbfs
+*.gcz
+*.nkit.*
+*.gci
+*.sav
+/saves/
+/save/
