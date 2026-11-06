@@ -5,6 +5,9 @@
 #include "m_editor_ovl.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/mail_screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -525,6 +528,28 @@ static void mAD_address_ovl_move(Submenu* submenu) {
 
     (*menu_info->pre_move_func)(submenu);
     (*ovl_move_proc[menu_info->proc_status])(submenu, menu_info);
+#ifdef TARGET_PC
+    {
+        /* accessibility: speak the highlighted addressee when it changes */
+        mAD_Ovl_c* adrs_ovl = submenu->overlay->address_ovl;
+        int selecting = adrs_ovl != NULL && menu_info->proc_status == mSM_OVL_PROC_PLAY &&
+                        adrs_ovl->proc_idx == mAD_PROC_SELECT && adrs_ovl->curIdx < mAD_PAGE_NUM &&
+                        adrs_ovl->page_entry_count[adrs_ovl->curIdx] > 0;
+        Mail_nm_c* name_p = NULL;
+        if (selecting) {
+            if (adrs_ovl->curIdx == mAD_PAGE_PLAYER) {
+                name_p = &adrs_ovl->player_mail_name[adrs_ovl->selected_entry];
+            } else if (adrs_ovl->curIdx == mAD_PAGE_NPC1) {
+                name_p = &adrs_ovl->animal_mail_name[mAD_PAGE_MAX_ENTRIES + adrs_ovl->selected_entry];
+            } else {
+                name_p = &adrs_ovl->animal_mail_name[adrs_ovl->selected_entry];
+            }
+        }
+        acc_address_update(selecting, selecting ? adrs_ovl->curIdx : -1, selecting ? adrs_ovl->selected_entry : -1,
+                           selecting ? adrs_ovl->page_entry_count[adrs_ovl->curIdx] : 0,
+                           name_p ? name_p->personalID.player_name : NULL, PLAYER_NAME_LEN);
+    }
+#endif
 }
 
 static void mAD_address_draw_init(Submenu* submenu) {

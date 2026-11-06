@@ -6,6 +6,9 @@
 #include "m_font.h"
 #include "m_tag_ovl.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/mail_screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -1377,6 +1380,18 @@ extern void mBD_board_ovl_construct(Submenu* submenu) {
 
     mBD_board_ovl_init(submenu);
     mBD_board_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+    {
+        /* accessibility: read a received letter aloud when it is opened for reading */
+        mSM_MenuInfo_c* menu_info = &submenu->overlay->menu_info[mSM_OVL_BOARD];
+        mBD_Ovl_c* board_ovl = submenu->overlay->board_ovl;
+        if (menu_info->data0 == mSM_BD_OPEN_READ || menu_info->data0 == mSM_BD_OPEN_READ_ISLAND) {
+            acc_letter_read(board_ovl->mail.content.header, board_ovl->lengths[mBD_FIELD_HEADER],
+                            board_ovl->mail.content.body, board_ovl->lengths[mBD_FIELD_BODY],
+                            board_ovl->mail.content.footer, board_ovl->lengths[mBD_FIELD_FOOTER]);
+        }
+    }
+#endif
 }
 
 extern void mBD_board_ovl_destruct(Submenu* submenu) {

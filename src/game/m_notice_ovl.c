@@ -8,6 +8,9 @@
 #include "m_font.h"
 #include "m_quest.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/mail_screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -312,6 +315,14 @@ static void mNT_Play_page_move(Submenu* submenu, mSM_MenuInfo_c* menu_info, mNT_
             menu_info->position[0] = 0.0f;
             notice_ovl->disp_page = notice_ovl->now_page;
             notice_ovl->mode = mNT_PLAY_PAGE_READ;
+#ifdef TARGET_PC
+            if (notice_ovl->now_page < notice_ovl->page_count) {
+                /* accessibility: the page has finished turning */
+                mNtc_board_post_c* post = Save_GetPointer(noticeboard[notice_ovl->now_page]);
+                acc_notice_post(FALSE, notice_ovl->now_page, notice_ovl->page_count, post->message,
+                                sizeof(post->message), &post->post_time);
+            }
+#endif
         } else {
             sAdo_SysTrgStart(0x5F);
             notice_ovl->disp_page = notice_ovl->now_page;
@@ -790,6 +801,19 @@ extern void mNT_notice_ovl_construct(Submenu* submenu) {
 
     mNT_notice_ovl_init(submenu);
     mNT_notice_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+    {
+        /* accessibility */
+        mNT_Ovl_c* nt = submenu->overlay->notice_ovl;
+        if (nt->page_count > 0 && nt->now_page < nt->page_count) {
+            mNtc_board_post_c* post = Save_GetPointer(noticeboard[nt->now_page]);
+            acc_notice_post(TRUE, nt->now_page, nt->page_count, post->message, sizeof(post->message),
+                            &post->post_time);
+        } else {
+            acc_notice_post(TRUE, 0, 0, NULL, 0, NULL);
+        }
+    }
+#endif
 }
 
 extern void mNT_notice_ovl_destruct(Submenu* submenu) {
