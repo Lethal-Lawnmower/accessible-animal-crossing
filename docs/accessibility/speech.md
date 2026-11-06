@@ -137,6 +137,16 @@ generic name, since replaced by the window's prompt), then "a", "d",
 codes: "Is it... Let's see now... 11:31 p.m. on Friday, November 6th, 2026?",
 plus both train choice windows.
 
+Fields (added 2026-11-06): windows with more than one text field name the
+field on opening and when the player moves to another one. `m_editor_ovl.c`
+(`acc_editor_field_label`) supplies the label from the window's own state
+(letter `board_ovl->field`; password `selected_idx` and `selected_line`),
+and `text_editor.c` notices the change of the editor's `input_str` pointer.
+When the move was caused by typing (line 1 of a secret code fills up) or
+deleting, the character is spoken first and the field is queued after it.
+The two password windows hand over their own prompts, copied from the
+strings their draw functions show. Built, not checked in a run.
+
 Not established: arrow-key text cursor moves (the test sent non-extended
 arrow key codes, and nothing was logged), and the on-screen grid with a
 controller.
@@ -155,6 +165,19 @@ then the typed name and town in dialogue ("You're going to tet?").
 All built from the current source (hooks marked `/* accessibility */` in the
 matching `src/game/m_*_ovl.c` files). None checked in a run yet: they need a
 game past the intro.
+
+## Calendar and diary
+
+Code: `pc/src/access/calendar.c`, hooks in `src/game/m_calendar_ovl.c` (end
+of `mCD_move_Play` and after construction) and `src/game/m_diary_ovl.c`
+(end of `mDI_diary_ovl_init`). The calendar is spoken only in its two
+resting states (choosing a month, choosing a day), not during slide
+animations. The meaning of the fields comes from the source: month index
+`_1056` counts from January of last year, day cells keep the day number in
+the low 5 bits and `mCD_DAY_CURRENT` in the top 3, icon 1 is a day played
+(`played_days`), icon 2 an event taken part in (`event_days`,
+`event_flags`). On return from the diary the day is spoken again instead
+of the calendar title. Built, not checked in a run (needs a save).
 
 ## Title screen and F5
 
@@ -181,3 +204,7 @@ in Settings: "Animal Crossing" (tab), "Data Folder: …" with its help, "Skip
 Prelaunch Menu: Off" then "Start the game with the last verified disc
 automatically.", "Check for Updates: On" then its help, and toggling it
 logged "Off", "On". Arrow keys were sent as extended key codes.
+
+Open question, 2026-11-06: launching straight into the game (disc on the
+command line) logs one "Settings" announcement before the title screen.
+Some port menu element reports focus while the game starts. Not yet traced.

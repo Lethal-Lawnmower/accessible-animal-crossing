@@ -37,6 +37,21 @@ static const char* section_name(int table) {
         case mTG_TABLE_MUSIC_MAIN:       return "Music";
         case mTG_TABLE_NEEDLEWORK:       return "Designs";
         case mTG_TABLE_INVENTORY_WC_ORG: return "Designs";
+        /* Memory card and Game Boy Advance screens. Names follow the
+         * table names in m_tag_ovl.h: NW = the player's own needlework,
+         * WC = the folder column, TI = the folder title. */
+        case mTG_TABLE_CATALOG_WC:       return "Catalog pages";
+        case mTG_TABLE_CPMAIL:           return "Letters";
+        case mTG_TABLE_CPMAIL_WC:        return "Folders";
+        case mTG_TABLE_CPMAIL_TI:        return "Folder name";
+        case mTG_TABLE_CPORIGINAL:       return "Memory card designs";
+        case mTG_TABLE_CPORIGINAL_NW:    return "Your designs";
+        case mTG_TABLE_CPORIGINAL_WC:    return "Folders";
+        case mTG_TABLE_CPORIGINAL_TI:    return "Folder name";
+        case mTG_TABLE_GBA:              return "Game Boy Advance designs";
+        case mTG_TABLE_GBA_NW:           return "Your designs";
+        case mTG_TABLE_CARD:             return "Memory card";
+        case mTG_TABLE_CARD_NW:          return "Your designs";
         default:                         return NULL;
     }
 }

@@ -84,6 +84,7 @@ add_dependencies(access_prism prism_external)
 
 set(ACCESS_ROOT "${PC_ROOT}/src/access")
 set(ACCESS_SOURCES
+    ${ACCESS_ROOT}/calendar.c
     ${ACCESS_ROOT}/choice.c
     ${ACCESS_ROOT}/dialogue.c
     ${ACCESS_ROOT}/game_text.c

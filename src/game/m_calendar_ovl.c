@@ -6,6 +6,9 @@
 #include "m_warning_ovl.h"
 #include "sys_matrix.h"
 #include "m_malloc.h"
+#ifdef TARGET_PC
+#include "access/calendar.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -873,6 +876,29 @@ static void mCD_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     mCD_Ovl_c* calendar = submenu->overlay->calendar_ovl;
 
     (*mCD_play_proc[calendar->move_proc_idx])(submenu, menu_info);
+#ifdef TARGET_PC
+    /* accessibility: speak the month or day under the cursor once the
+     * calendar is in one of its two resting states */
+    if (calendar->move_proc_idx == mCD_MVPL_SELECT || calendar->move_proc_idx == mCD_MVPL_DAY) {
+        mCD_month_entry_c* entry = &calendar->month_entries[calendar->_1056];
+        u8 cell = entry->day_data[calendar->_1057];
+        AccCalendarState state;
+
+        state.choosing_day = calendar->move_proc_idx == mCD_MVPL_DAY;
+        state.year = Common_Get(time.rtc_time.year) - 1 + calendar->_1056 / lbRTC_MONTHS_MAX;
+        state.month = calendar->_1056 % lbRTC_MONTHS_MAX + 1;
+        state.is_this_month = calendar->_1056 == calendar->_1059;
+        state.day = state.choosing_day ? (cell & 0x1F) : 0;
+        state.weekday = calendar->_1057 % lbRTC_WEEK;
+        state.is_today = state.choosing_day && ((cell >> 5) & 7) == mCD_DAY_CURRENT;
+        state.icon = state.choosing_day ? entry->_25[calendar->_1057] : 0;
+        state.event_count = state.choosing_day ? calendar->_1043 : 0;
+        state.event_index = calendar->_1042;
+        state.event_name = state.event_count > 0 ? calendar->event_name_str : NULL;
+        state.event_name_len = mCD_EVENT_NAME_STR_LEN;
+        acc_calendar_update(&state);
+    }
+#endif
 }
 
 static void mCD_move_Obey(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -989,6 +1015,17 @@ extern void mCD_calendar_ovl_construct(Submenu* submenu) {
 
     mCD_calendar_ovl_init(submenu);
     mCD_calendar_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+    {
+        /* accessibility: name whose calendar this is */
+        int owner = submenu->param1;
+        if (owner >= 0 && owner < PLAYER_NUM) {
+            acc_calendar_opened(Save_Get(private_data[owner]).player_ID.player_name, PLAYER_NAME_LEN);
+        } else {
+            acc_calendar_opened(NULL, 0);
+        }
+    }
+#endif
 }
 
 extern void mCD_calendar_ovl_destruct(Submenu* submenu) {

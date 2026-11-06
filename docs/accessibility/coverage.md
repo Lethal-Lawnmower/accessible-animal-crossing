@@ -27,15 +27,33 @@ Status values: **done** (implemented and checked in a real run), **built**
 | Loan repayment | built | `screens.c` |
 | Birthday entry | built | `screens.c` |
 | "Is this OK?" after writing | built | `screens.c`; the question, then the answers once they appear |
+| Calendar | built | `calendar.c`: owner's name, month and year ("this month"), then in day mode weekday, date, "today", the played and event icons, event names with position. New: never covered before |
+| Diary page | built | `calendar.c`: month, the whole page, "A to write" when it can be written. Writing uses the text editor. New |
+| Password screens (make and check) | built | `text_editor.c` and `m_editor_ovl.c`: the window prompt ("Enter a receiver.", "Enter a secret code."), then the field ("Town name", "Player name", "Line 1 of 2"). Moving between fields, including the automatic move when line 1 fills, says the field and its text. New |
+| Letter writing fields | built | the same field speech: "Greeting", "Message", "Signature" |
+| Gyroid message board | built | only the text editor, which already says "Gyroid message" and the current text |
+| Memory card letters and designs, Game Boy Advance designs | built | these use the item menu (tag overlay), so slots already speak; section names added (folders, folder name, your designs) |
 | Town tune editor | built | `screens.c`; note names from the editor's own sound table (value 14 is "hold", not "rest" as the old project said) |
 
 ## Submenus never covered
 
-From the `mSM_OVL_*` list in `include/m_submenu.h`. Neither project has speech
-for these yet: diary, calendar, password make and check, house gyroid message
-board (`HBOARD`; its text editor already speaks), memory card letters and
-designs (`CPMAIL`, `CPEDIT`, `CPORIGINAL`), pattern design (`DESIGN`), Game
-Boy Advance.
+From the `mSM_OVL_*` list in `include/m_submenu.h`. Covered as of
+2026-11-06 (built, see the table above): calendar, diary, password make and
+check, gyroid message board, memory card letters and designs, Game Boy
+Advance designs. `CPEDIT` has no screen of its own (its move and draw
+functions are empty).
+
+Still not covered:
+
+- Pattern design editor (`DESIGN`, `src/game/m_design_ovl.c`, 3,237 lines).
+  A 32 by 32 drawing grid with palette, pen, fill and undo tools; most of
+  its state fields are unnamed in the decompilation. Making it usable needs
+  its own design (how to read rows of pixels, colours and tools), not just
+  announcements. Deferred.
+- Calendar diary scrolling: the diary page is read in full when it opens;
+  scrolling with the stick is not announced. F5 repeats the page.
+- The Game Boy Advance link itself is not expected to work in the PC port;
+  only the design list was given names.
 
 ## Nookery's own screens (new in the upstream port)
 
@@ -59,6 +77,9 @@ by the screen reader itself) and the status line at the bottom of the
 prelaunch screen.
 
 ## Test save
+
+2026-11-06: a web search found no downloadable GAFE01 save, only save
+editors and forum threads; none was downloaded.
 
 The old project's saved town (every copy found is the same file) is rejected
 by this port: `[PC] GCI: auxiliary checksums invalid; refusing destructive

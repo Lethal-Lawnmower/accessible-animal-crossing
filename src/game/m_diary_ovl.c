@@ -8,6 +8,9 @@
 #include "m_editEndChk_ovl.h"
 #include "m_cpwarning_ovl.h"
 #include "m_malloc.h"
+#ifdef TARGET_PC
+#include "access/calendar.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -1016,6 +1019,11 @@ static void mDI_diary_ovl_init(Submenu* submenu) {
     mDI_get_col_line_width(diary_ovl, &diary_ovl->_22, &diary_ovl->_24, NULL, NULL, diary_ovl->entry_len[mDI_FIELD_BODY]);
     diary_ovl->move_proc = mDI_MOVE_READ;
     sAdo_SysTrgStart(NA_SE_5F);
+#ifdef TARGET_PC
+    /* accessibility: read the page; data3 is the month, data0 == 0 means it can be written */
+    acc_diary_opened((int)menu_info->data3 + 1, diary_ovl->current_entry->text,
+                     diary_ovl->entry_len[mDI_FIELD_BODY], menu_info->data0 == 0);
+#endif
 }
 
 extern void mDI_diary_ovl_construct(Submenu* submenu) {

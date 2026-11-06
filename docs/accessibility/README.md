@@ -58,6 +58,11 @@ they are. Accessibility is added alongside them.
   in a run). Title screen, F5 repeat and the port's own menus (prelaunch,
   settings) speak and were checked in runs. Details in
   [coverage.md](coverage.md) and [speech.md](speech.md).
+- 2026-11-06: screens neither project covered now built: calendar, diary,
+  both password screens, text editor field names, memory card and Game Boy
+  Advance section names. Not checked in a run (no save). The pattern design
+  editor is deferred; it needs its own design. A smoke run confirmed the
+  title and intro dialogue still speak.
 
 ## Windows build check (2026-11-06)
 
@@ -103,6 +108,10 @@ booting the game.
 - 2026-11-06, user: approved continuing with the remaining menus and using a
   local, never-uploaded copy of an old saved town as a throwaway test save.
   The copy turned out to be unusable with this port (see coverage.md).
+- 2026-11-06, user: continue without a save for now and cover the
+  never-covered screens; searching online for a save was suggested. The
+  search found none. Downloading a save would still need its own approval
+  (file, source, size) and it would stay local, never committed.
 - 2026-11-06, user: reuse the existing public repository
   `Lethal-Lawnmower/accessible-animal-crossing`. The rewrite lives on its own
   branch, `rewrite`. The old `master` branch is left unchanged.
@@ -112,8 +121,8 @@ booting the game.
 1. Make a test save with this port (the old project's save is rejected; see
    coverage.md) and use it to check the inventory and the other built
    screens in runs.
-2. Cover the submenus neither project has: diary, calendar, password make
-   and check, gyroid message board, memory card screens, pattern design.
+2. Design speech for the pattern design editor (the last uncovered
+   submenu) and trace the stray "Settings" announcement at startup.
 3. Check the remaining host menus (town select, controller setup, in-game
    menu bar) and the settings tabs past the first.
 4. Design the new navigation from the game's own data structures.
