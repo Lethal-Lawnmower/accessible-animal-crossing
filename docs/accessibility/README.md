@@ -63,6 +63,9 @@ they are. Accessibility is added alongside them.
   Advance section names. Not checked in a run (no save). The pattern design
   editor is deferred; it needs its own design. A smoke run confirmed the
   title and intro dialogue still speak.
+- 2026-11-06: stray "Settings" at startup fixed (hidden menu bar held
+  focus) and checked in a run, along with the Escape menu bar. Diary
+  scrolling now reads line by line (built, not checked).
 
 ## Windows build check (2026-11-06)
 
@@ -112,6 +115,8 @@ booting the game.
   never-covered screens; searching online for a save was suggested. The
   search found none. Downloading a save would still need its own approval
   (file, source, size) and it would stay local, never committed.
+- 2026-11-06, user: fix the stray startup announcement and add diary
+  scrolling speech; leave the pattern design editor for later.
 - 2026-11-06, user: reuse the existing public repository
   `Lethal-Lawnmower/accessible-animal-crossing`. The rewrite lives on its own
   branch, `rewrite`. The old `master` branch is left unchanged.
@@ -122,7 +127,7 @@ booting the game.
    coverage.md) and use it to check the inventory and the other built
    screens in runs.
 2. Design speech for the pattern design editor (the last uncovered
-   submenu) and trace the stray "Settings" announcement at startup.
+   submenu). Deferred by the user on 2026-11-06.
 3. Check the remaining host menus (town select, controller setup, in-game
    menu bar) and the settings tabs past the first.
 4. Design the new navigation from the game's own data structures.

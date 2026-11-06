@@ -177,7 +177,16 @@ animations. The meaning of the fields comes from the source: month index
 the low 5 bits and `mCD_DAY_CURRENT` in the top 3, icon 1 is a day played
 (`played_days`), icon 2 an event taken part in (`event_days`,
 `event_flags`). On return from the diary the day is spoken again instead
-of the calendar title. Built, not checked in a run (needs a save).
+of the calendar title.
+
+Diary scrolling (read view): each scroll step speaks the line now at the
+top, "Line 3 of 8: …", or "blank". Lines are split with the diary's own
+`mDI_strLineCheck`, so they match the page. The game stops scrolling when
+the last lines are on screen (`mDI_move_cursol_lower`: line count minus 6),
+so at that position the rest of the page is read ("Lines 5 to 8 of 8: …").
+The opening announcement mentions scrolling.
+
+Built, not checked in a run (needs a save).
 
 ## Title screen and F5
 
@@ -205,6 +214,14 @@ Prelaunch Menu: Off" then "Start the game with the last verified disc
 automatically.", "Check for Updates: On" then its help, and toggling it
 logged "Off", "On". Arrow keys were sent as extended key codes.
 
-Open question, 2026-11-06: launching straight into the game (disc on the
-command line) logs one "Settings" announcement before the title screen.
-Some port menu element reports focus while the game starts. Not yet traced.
+Fixed 2026-11-06: launching straight into the game (disc on the command
+line) used to speak "Settings" once before the title screen. Cause:
+`pc/src/ui/ui.cpp` pushes the menu bar document hidden at startup, and its
+first tab ("Settings") holds RmlUi focus. The check used
+`Element::IsVisible()`, which by default ignores ancestors; it now uses
+`IsVisible(true)`. Each focus change is also logged at debug level
+(`access::host_menu`, tag and id) for tracing.
+
+Runtime check after the fix (same method): nothing spoken before "Animal
+Crossing. Press START!"; Escape on the title screen spoke "Settings", then
+Right arrow "Controls" and "Quit". This also checks the in-game menu bar.

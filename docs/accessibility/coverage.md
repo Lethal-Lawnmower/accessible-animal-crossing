@@ -28,7 +28,7 @@ Status values: **done** (implemented and checked in a real run), **built**
 | Birthday entry | built | `screens.c` |
 | "Is this OK?" after writing | built | `screens.c`; the question, then the answers once they appear |
 | Calendar | built | `calendar.c`: owner's name, month and year ("this month"), then in day mode weekday, date, "today", the played and event icons, event names with position. New: never covered before |
-| Diary page | built | `calendar.c`: month, the whole page, "A to write" when it can be written. Writing uses the text editor. New |
+| Diary page | built | `calendar.c`: month, the whole page, "A to write" when it can be written; scrolling reads line by line. Writing uses the text editor. New |
 | Password screens (make and check) | built | `text_editor.c` and `m_editor_ovl.c`: the window prompt ("Enter a receiver.", "Enter a secret code."), then the field ("Town name", "Player name", "Line 1 of 2"). Moving between fields, including the automatic move when line 1 fills, says the field and its text. New |
 | Letter writing fields | built | the same field speech: "Greeting", "Message", "Signature" |
 | Gyroid message board | built | only the text editor, which already says "Gyroid message" and the current text |
@@ -50,8 +50,6 @@ Still not covered:
   its state fields are unnamed in the decompilation. Making it usable needs
   its own design (how to read rows of pixels, colours and tools), not just
   announcements. Deferred.
-- Calendar diary scrolling: the diary page is read in full when it opens;
-  scrolling with the stick is not announced. F5 repeats the page.
 - The Game Boy Advance link itself is not expected to work in the PC port;
   only the design list was given names.
 
@@ -66,7 +64,7 @@ previous project never spoke the port's menus.
 | Settings | `pc/src/ui/settings.cpp` | done on the first tab: "label: value", the help text, value changes |
 | Town select | `pc/src/ui/town_select.cpp` | built (generic), not checked |
 | Controller configuration | `pc/src/ui/controller_config.cpp` | built (generic), not checked |
-| In-game menu bar (Escape) | `pc/src/ui/menu_bar.cpp`, `overlay.cpp` | built (generic), not checked |
+| In-game menu bar (Escape) | `pc/src/ui/menu_bar.cpp`, `overlay.cpp` | done: tabs spoken (checked on the title screen); the windows they open not checked past the first settings tab |
 
 One module, `pc/src/access/host_menu.cpp`, speaks all of these by following
 RmlUi focus: the focused control's text (label: value), "unavailable" for

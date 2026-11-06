@@ -148,7 +148,33 @@ void acc_diary_opened(int month, const u8* text, int text_len, int editable) {
         acc_text_tidy(body);
     }
     snprintf(say, sizeof(say), "Diary, %s. %s%s", month_name(month), body[0] ? body : "Blank page.",
-             editable ? " A to write, B to close." : "");
+             editable ? " A to write, B to close. Scroll to read line by line." : " Scroll to read line by line.");
     acc_speak_interrupt(say);
     s_returning = s_active; /* only when opened from the calendar */
+}
+
+void acc_diary_lines(int first, int last, int count, const u8* text, int text_len) {
+    char body[2048];
+    char say[2200];
+    char where[48];
+
+    body[0] = '\0';
+    if (text && text_len > 0) {
+        acc_game_text_to_utf8(text, text_len, body, sizeof(body));
+        acc_text_tidy(body);
+    }
+    if (count <= 0) {
+        count = 1;
+    }
+    if (last > first) {
+        snprintf(where, sizeof(where), "Lines %d to %d of %d", first + 1, last + 1, count);
+    } else {
+        snprintf(where, sizeof(where), "Line %d of %d", first + 1, count);
+    }
+    if (body[0]) {
+        snprintf(say, sizeof(say), "%s: %s", where, body);
+    } else {
+        snprintf(say, sizeof(say), "%s, blank", where);
+    }
+    acc_speak_interrupt(say);
 }

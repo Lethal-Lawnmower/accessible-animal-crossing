@@ -37,6 +37,12 @@ void acc_calendar_update(const AccCalendarState* state);
  * A starts writing. */
 void acc_diary_opened(int month, const u8* text, int text_len, int editable);
 
+/* The diary's read view scrolled: lines first..last (0-based) of count are
+ * read. Normally first == last, the line now at the top; at the bottom of
+ * the page the rest of the page. text is game-encoded, NULL or empty when
+ * blank. */
+void acc_diary_lines(int first, int last, int count, const u8* text, int text_len);
+
 #ifdef __cplusplus
 }
 #endif

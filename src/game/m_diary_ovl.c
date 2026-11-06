@@ -491,6 +491,59 @@ static u32 mDI_mouse_trigger(Submenu* submenu, mSM_MenuInfo_c* menu_info, u32 tr
 }
 #endif
 
+#ifdef TARGET_PC
+/* accessibility: speak the line at the top of the page when the read view
+ * scrolls. Lines are split with the same function the page is drawn with
+ * (mDI_strLineCheck: a new line code, or more than 192 pixels of text). */
+static int mDI_strLineCheck(u8** str_pp, u8* str_end_p, int* width, int* line_len);
+static int acc_diary_last_top = -1;
+
+static void acc_diary_speak_top_line(mDI_Ovl_c* diary_ovl) {
+    u8* str_p = diary_ovl->current_entry->text;
+    u8* str_end_p = str_p + diary_ovl->entry_len[mDI_FIELD_BODY];
+    const u8* line_start = NULL;
+    int line_len = 0;
+    int count = 0;
+    int top = diary_ovl->_18;
+
+    while (count < 31 && str_p < str_end_p) {
+        u8* start_p = str_p;
+        int width = 0;
+        int len = 0;
+        int cmd;
+
+        do {
+            cmd = mDI_strLineCheck(&str_p, str_end_p, &width, &len);
+        } while (cmd == 0);
+
+        if (cmd == 1) {
+            len--; /* the new line code itself */
+        }
+        if (count == top) {
+            line_start = start_p;
+            line_len = len;
+        }
+        count++;
+        if (cmd == 3) {
+            break;
+        }
+    }
+
+    {
+        /* At the last scroll position (the same limit as
+         * mDI_move_cursol_lower) the rest of the page is on screen but can
+         * never reach the top, so read from here to the end. */
+        s16 game_lines;
+        mDI_get_col_line_width(diary_ovl, NULL, &game_lines, NULL, NULL, diary_ovl->entry_len[mDI_FIELD_BODY]);
+        if (line_start != NULL && top >= game_lines - 6 && count > top + 1) {
+            acc_diary_lines(top, count - 1, count, line_start, (int)(str_end_p - line_start));
+            return;
+        }
+    }
+    acc_diary_lines(top, top, count, line_start, line_len);
+}
+#endif
+
 static void mDI_Play_read(Submenu* submenu, mSM_MenuInfo_c* menu_info, mDI_Ovl_c* diary_ovl) {
     u32 trigger = getTrigger();
 
@@ -499,6 +552,14 @@ static void mDI_Play_read(Submenu* submenu, mSM_MenuInfo_c* menu_info, mDI_Ovl_c
     trigger = mDI_mouse_trigger(submenu, menu_info, trigger);
 #endif
     mDI_roll_control_read(submenu, menu_info);
+#ifdef TARGET_PC
+    if (acc_diary_last_top != diary_ovl->_18) { /* accessibility */
+        if (acc_diary_last_top >= 0) {
+            acc_diary_speak_top_line(diary_ovl);
+        }
+        acc_diary_last_top = diary_ovl->_18;
+    }
+#endif
 
     if ((trigger & (BUTTON_A | BUTTON_B | BUTTON_START)) != 0) {
         if ((trigger & BUTTON_B) != 0 || menu_info->data0 == 1) {
@@ -1021,6 +1082,7 @@ static void mDI_diary_ovl_init(Submenu* submenu) {
     sAdo_SysTrgStart(NA_SE_5F);
 #ifdef TARGET_PC
     /* accessibility: read the page; data3 is the month, data0 == 0 means it can be written */
+    acc_diary_last_top = -1; /* the opening announcement reads the page */
     acc_diary_opened((int)menu_info->data3 + 1, diary_ovl->current_entry->text,
                      diary_ovl->entry_len[mDI_FIELD_BODY], menu_info->data0 == 0);
 #endif
