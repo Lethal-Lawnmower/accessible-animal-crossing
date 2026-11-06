@@ -40,7 +40,8 @@ they are. Accessibility is added alongside them.
 
 ## Current status
 
-- 2026-11-06: repository created from the fresh upstream clone. Nothing has been
+- 2026-11-06: repository created from the fresh upstream clone and pushed to
+  branch `rewrite` of the existing GitHub repository. Nothing has been
   built, run, or tested here yet. No accessibility code exists yet.
 
 ## Decision log
@@ -51,6 +52,9 @@ they are. Accessibility is added alongside them.
   completely.
 - 2026-11-06, user: everything goes to GitHub from day one, including all code
   commits.
+- 2026-11-06, user: reuse the existing public repository
+  `Lethal-Lawnmower/accessible-animal-crossing`. The rewrite lives on its own
+  branch, `rewrite`. The old `master` branch is left unchanged.
 
 ## Next steps
 
