@@ -87,6 +87,7 @@ set(ACCESS_SOURCES
     ${ACCESS_ROOT}/choice.c
     ${ACCESS_ROOT}/dialogue.c
     ${ACCESS_ROOT}/game_text.c
+    ${ACCESS_ROOT}/hotkeys.cpp
     ${ACCESS_ROOT}/item_menu.c
     ${ACCESS_ROOT}/mail_screens.c
     ${ACCESS_ROOT}/screens.c

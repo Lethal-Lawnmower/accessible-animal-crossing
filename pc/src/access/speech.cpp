@@ -166,6 +166,7 @@ void acc_speech_repeat(void) {
         last = g_last;
     }
     if (!last.empty()) {
+        Log.debug("repeat {}", last);
         submit({Request::Kind::Speak, std::move(last), true});
     }
 }

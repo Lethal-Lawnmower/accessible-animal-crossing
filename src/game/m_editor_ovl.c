@@ -2833,6 +2833,7 @@ extern void mED_editor_ovl_destruct(Submenu* submenu) {
 
 #ifdef TARGET_PC
     acgc_editor_set_available(FALSE, FALSE);
+    acc_text_editor_closed(); /* accessibility */
 #endif
     overlay->editor_ovl = NULL;
 }

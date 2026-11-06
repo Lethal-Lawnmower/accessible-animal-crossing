@@ -24,6 +24,9 @@
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
+#ifdef TARGET_PC
+#include "access/speech.h" /* accessibility */
+#endif
 
 #define G_CC_TITLE PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, PRIMITIVE, 0, TEXEL0, 0
 #define G_CC_TM 0, 0, 0, PRIMITIVE, 0, 0, 0, TEXEL0
@@ -344,6 +347,12 @@ static void aAL_setupAction(ANIMAL_LOGO_ACTOR* actor, GAME* game, int action) {
   printf("[LOGO] aAL_setupAction: %d -> %d\n", actor->action, action);
 #endif
   (*init_proc[action])(actor, game);
+#ifdef TARGET_PC
+  if (action == aAL_ACTION_GAME_START && actor->action != aAL_ACTION_GAME_START) {
+    /* accessibility: the title now waits for Start; its text is drawn as textures */
+    acc_speak_interrupt("Animal Crossing. Press START!");
+  }
+#endif
   actor->action = action;
   actor->action_proc = process[action];
 }

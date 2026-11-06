@@ -15,6 +15,7 @@
 #include "acgc/game_editor.hpp"
 #include "acgc/game_pointer.hpp"
 #include "aurora_debug.h"
+#include "access/hotkeys.h"
 #include "access/speech.h"
 #include "acgc/app_info.hpp"
 #include "acgc/controller_ports.hpp"
@@ -118,6 +119,7 @@ bool ac_aurora_begin_frame() {
                 event->sdl.key.key == SDLK_F2) {
                 pc_speedhack_toggle();
             }
+            acc_hotkeys_handle_event(event->sdl); // accessibility
             acgc::ui::handle_event(event->sdl);
             acgc::input::pointer_window_event(event->sdl);
         } else if (event->type == AURORA_PAUSED || event->type == AURORA_UNPAUSED) {

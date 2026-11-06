@@ -26,6 +26,12 @@ void acc_text_editor_set_title(const u8* title, int title_len);
  * the frame's input. */
 void acc_text_editor_update(const mED_Ovl_c* editor, u8 grid_char);
 
+/* The editor closed. */
+void acc_text_editor_closed(void);
+
+/* TRUE between opened and closed. */
+int acc_text_editor_is_open(void);
+
 /* Speak the whole text entered so far (read-back hotkey). */
 void acc_text_editor_read_all(void);
 

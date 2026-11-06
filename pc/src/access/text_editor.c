@@ -238,3 +238,11 @@ void acc_text_editor_read_all(void) {
     acc_text_tidy(text);
     acc_speak_interrupt(text[0] ? text : "empty");
 }
+
+void acc_text_editor_closed(void) {
+    s_last.active = FALSE;
+}
+
+int acc_text_editor_is_open(void) {
+    return s_last.active;
+}
