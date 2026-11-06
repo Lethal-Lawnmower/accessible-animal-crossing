@@ -52,6 +52,8 @@ they are. Accessibility is added alongside them.
 - 2026-11-06: Prism speech output, dialogue speech and choice speech
   implemented and checked in a real run with NVDA (K.K. intro). See
   [speech.md](speech.md). Menus are next; see [coverage.md](coverage.md).
+- 2026-11-06: text editor speech checked on the name screen; item menu
+  (inventory) speech built but not yet runtime-checked.
 
 ## Windows build check (2026-11-06)
 
@@ -100,8 +102,13 @@ booting the game.
 
 ## Next steps
 
-1. Port the menu speech module by module (inventory first), checking each in
-   a real run. Order and status are in [coverage.md](coverage.md).
-2. Add a repeat hotkey and the title screen announcement.
-3. Make the port's own RmlUi menus (prelaunch, settings) speak.
-4. Design the new navigation from the game's own data structures.
+1. Runtime-check the inventory speech (needs a game past the intro; a test
+   save would speed this up).
+2. Port the remaining old menu screens: clock, map, address book, notice
+   board, letters, warnings, bank, loan, birthday, edit confirmation, town
+   tune. Then the submenus never covered (diary, calendar, passwords,
+   memory card screens, pattern design).
+3. Add hotkeys (repeat dialogue, read back editor text) and the title screen
+   announcement.
+4. Make the port's own RmlUi menus (prelaunch, settings) speak.
+5. Design the new navigation from the game's own data structures.
