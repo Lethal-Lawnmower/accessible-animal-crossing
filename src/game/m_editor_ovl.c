@@ -19,6 +19,27 @@
 #ifdef TARGET_PC
 #include "game_editor.h"
 #include "access/text_editor.h" /* accessibility */
+
+/* accessibility: name of the part of the window being edited, for the
+ * windows that have more than one (letters, both password screens). */
+static const char* acc_editor_field_label(Submenu* submenu, int type) {
+    Submenu_Overlay_c* overlay = submenu->overlay;
+
+    if (type == mED_TYPE_BOARD && overlay->board_ovl != NULL) {
+        switch (overlay->board_ovl->field) {
+            case mBD_FIELD_HEADER: return "Greeting";
+            case mBD_FIELD_BODY:   return "Message";
+            default:               return "Signature";
+        }
+    }
+    if (type == mED_TYPE_PASSWORDMAKE && overlay->passwordMake_ovl != NULL) {
+        return overlay->passwordMake_ovl->selected_idx == mPM_ENTRY_TOWN ? "Town name" : "Player name";
+    }
+    if (type == mED_TYPE_PASSWORDCHK && overlay->passwordChk_ovl != NULL) {
+        return overlay->passwordChk_ovl->selected_line == 0 ? "Line 1 of 2" : "Line 2 of 2";
+    }
+    return NULL;
+}
 #endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
@@ -2073,6 +2094,7 @@ static void mED_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
                            editor_ovl->cursor_idx);
     mED_check_line_over(editor_ovl);
 #ifdef TARGET_PC
+    acc_text_editor_set_field(acc_editor_field_label(submenu, menu_info->data0)); /* accessibility */
     acc_text_editor_update(editor_ovl,
                            (u8)mED_get_code(editor_ovl, editor_ovl->select_col, editor_ovl->select_row)); /* accessibility */
 #endif
@@ -2823,6 +2845,7 @@ extern void mED_editor_ovl_construct(Submenu* submenu) {
     {
         /* accessibility */
         mED_Ovl_c* ed = submenu->overlay->editor_ovl;
+        acc_text_editor_set_field(acc_editor_field_label(submenu, menu_info->data0));
         acc_text_editor_opened(ed, menu_info->data0, (u8)mED_get_code(ed, ed->select_col, ed->select_row));
     }
 #endif

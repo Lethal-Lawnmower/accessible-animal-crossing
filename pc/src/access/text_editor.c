@@ -32,12 +32,20 @@ typedef struct {
     s16 length;
     u8 text[ACC_EDITOR_TEXT_MAX];
     const u8* live_text;
+    char field[48];
 } EditorSnapshot;
 
 static EditorSnapshot s_last;
 
 /* One-shot prompt supplied by the window that opens the editor. */
 static char s_pending_title[64];
+
+/* Current field label, set by the game side every frame. */
+static char s_field[48];
+
+void acc_text_editor_set_field(const char* label) {
+    snprintf(s_field, sizeof(s_field), "%s", label ? label : "");
+}
 
 void acc_text_editor_set_title(const u8* title, int title_len) {
     s_pending_title[0] = '\0';
@@ -138,6 +146,7 @@ static void remember(const mED_Ovl_c* editor) {
     s_last.cursor_idx = editor->cursor_idx;
     s_last.length = (s16)len;
     s_last.live_text = editor->input_str;
+    snprintf(s_last.field, sizeof(s_last.field), "%s", s_field);
     if (editor->input_str && len > 0) {
         memcpy(s_last.text, editor->input_str, (size_t)len);
     }
@@ -170,6 +179,11 @@ void acc_text_editor_opened(const mED_Ovl_c* editor, int type, u8 grid_char) {
         }
     }
 
+    if (s_field[0] != '\0') {
+        size_t n = strlen(title);
+        snprintf(title + n, sizeof(title) - n, " %s.", s_field);
+    }
+
     current_text(editor, existing, sizeof(existing));
     char_name(grid_char, grid, sizeof(grid));
     if (existing[0] != '\0') {
@@ -193,6 +207,11 @@ void acc_text_editor_update(const mED_Ovl_c* editor, u8 grid_char) {
         return;
     }
 
+    /* Moved to another part of the window (letter greeting, message or
+     * signature; password fields). Some moves happen as a side effect of
+     * typing or deleting, so the character is still spoken first. */
+    int field_changed = editor->input_str != s_last.live_text || strcmp(s_field, s_last.field) != 0;
+
     /* Typing and deleting come first: typing on the PC keyboard can also
      * switch the grid's mode, and the typed character matters more. */
     if (editor->command_processed && editor->command == mED_COMMAND_OUTPUT_CODE) {
@@ -208,6 +227,8 @@ void acc_text_editor_update(const mED_Ovl_c* editor, u8 grid_char) {
             snprintf(text, sizeof(text), "nothing to delete");
         }
         acc_speak_interrupt(text);
+    } else if (field_changed) {
+        /* announced below */
     } else if (editor->input_mode != s_last.input_mode || editor->shift_mode != s_last.shift_mode) {
         char_name(grid_char, name, sizeof(name));
         snprintf(text, sizeof(text), "%s. %s", mode_name(editor->input_mode, editor->shift_mode), name);
@@ -223,6 +244,17 @@ void acc_text_editor_update(const mED_Ovl_c* editor, u8 grid_char) {
     } else if (editor->select_col != s_last.grid_col || editor->select_row != s_last.grid_row) {
         char_name(grid_char, name, sizeof(name));
         acc_speak_interrupt(name);
+    }
+
+    if (field_changed) {
+        char existing[ACC_EDITOR_TEXT_MAX * 2];
+        char say[ACC_EDITOR_TEXT_MAX * 2 + 64];
+        int typed = editor->command_processed &&
+                    (editor->command == mED_COMMAND_OUTPUT_CODE || editor->command == mED_COMMAND_BACKSPACE);
+        current_text(editor, existing, sizeof(existing));
+        snprintf(say, sizeof(say), "%s%s %s", s_field[0] ? s_field : "Next field", existing[0] ? ":" : ",",
+                 existing[0] ? existing : "empty");
+        acc_speak(say, !typed);
     }
 
     remember(editor);

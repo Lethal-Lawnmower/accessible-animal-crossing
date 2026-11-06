@@ -5,6 +5,9 @@
 #include "m_editor_ovl.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/text_editor.h" /* accessibility */
+#endif
 
 mPC_Ovl_c pc_ovl_data;
 
@@ -178,6 +181,10 @@ static void mPC_passwordChk_ovl_init(Submenu* submenu) {
   menu_info->move_drt = mSM_MOVE_IN_TOP;
 
   /* Open the editor overlay on top of this submenu */
+#ifdef TARGET_PC
+  /* accessibility: announce this window's own prompt (drawn in mPC_set_character) */
+  acc_text_editor_set_title((const u8*)"Enter a secret code.", 20);
+#endif
   mSM_open_submenu_new2(submenu, mSM_OVL_EDITOR, mED_TYPE_PASSWORDCHK, 0, passwordChk_ovl->line0, 168);
 }
 

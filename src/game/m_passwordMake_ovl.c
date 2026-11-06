@@ -5,6 +5,9 @@
 #include "m_editor_ovl.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/text_editor.h" /* accessibility */
+#endif
 
 mPM_Ovl_c pm_ovl_data;
 
@@ -207,6 +210,10 @@ static void mPM_passwordMake_ovl_init(Submenu* submenu) {
   menu_info->move_drt = mSM_MOVE_IN_TOP;
 
   /* Open the editor overlay on top of this submenu */
+#ifdef TARGET_PC
+  /* accessibility: announce this window's own prompt (drawn in mPM_set_character) */
+  acc_text_editor_set_title((const u8*)"Enter a receiver.", 17);
+#endif
   mSM_open_submenu_new2(submenu, mSM_OVL_EDITOR, mED_TYPE_PASSWORDMAKE, 0, passwordMake_ovl->town_name, 80);
 }
 

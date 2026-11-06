@@ -22,6 +22,12 @@ void acc_text_editor_opened(const mED_Ovl_c* editor, int type, u8 grid_char);
  * "Enter your name.". */
 void acc_text_editor_set_title(const u8* title, int title_len);
 
+/* Name of the part of the window being edited ("Town name", "Message"),
+ * or NULL for single-field editors. The game side sets this before
+ * acc_text_editor_opened and before every acc_text_editor_update; moving to
+ * another field is announced with that field's name and text. */
+void acc_text_editor_set_field(const char* label);
+
 /* Called once per frame while the editor is in use, after the game handled
  * the frame's input. */
 void acc_text_editor_update(const mED_Ovl_c* editor, u8 grid_char);
