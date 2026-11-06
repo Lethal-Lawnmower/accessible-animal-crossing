@@ -1,4 +1,7 @@
 #include "m_mscore_ovl.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#endif
 
 #include "m_submenu_ovl.h"
 #include "audio.h"
@@ -362,6 +365,9 @@ static void mMS_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     } else {
         mscore_ovl->anim_frame = (mscore_ovl->anim_frame + 1) % 18;
     }
+#ifdef TARGET_PC
+    acc_tune_update(mscore_ovl->cursor_idx, mscore_ovl->melody); /* accessibility */
+#endif
 }
 
 static void mMS_move_Wait(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -435,6 +441,9 @@ static void mMS_move_Obey(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     }
 
     mscore_ovl->anim_frame = (mscore_ovl->anim_frame + 1) % 18;
+#ifdef TARGET_PC
+    acc_tune_clear_update(mscore_ovl->scale_dir == mMS_SCALE_WAIT, mscore_ovl->menu_idx); /* accessibility */
+#endif
 }
 
 static void mMS_move_End(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -692,6 +701,9 @@ static void mMS_mscore_ovl_init(Submenu* submenu) {
     mscore_ovl->wait_timer = 10;
     mscore_ovl->cursor_idx = -1;
     mMld_GetMelody(mscore_ovl->melody);
+#ifdef TARGET_PC
+    acc_tune_opened(); /* accessibility */
+#endif
 }
 
 extern void mMS_mscore_ovl_construct(Submenu* submenu) {

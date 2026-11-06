@@ -193,6 +193,158 @@ void acc_repay_update(int cursor, u32 amount, u32 money, u32 loan) {
     s_repay_amount = amount;
 }
 
+/* ---- Birthday ------------------------------------------------------------ */
+
+static int s_bday_field = -1;
+static int s_bday_month = -1;
+static int s_bday_day = -1;
+static int s_bday_fresh = FALSE;
+
+void acc_birthday_opened(void) {
+    s_bday_fresh = TRUE;
+    s_bday_field = s_bday_month = s_bday_day = -1;
+}
+
+void acc_birthday_update(int field, int month, int day) {
+    char text[96];
+    if (!s_bday_fresh && field == s_bday_field && month == s_bday_month && day == s_bday_day) {
+        return;
+    }
+    switch (field) {
+        case 0: /* mBR_Ovl_IDX_MONTH */
+            snprintf(text, sizeof(text), "Month %s", (month >= 1 && month <= 12) ? s_months[month - 1] : "unknown");
+            break;
+        case 1: /* mBR_Ovl_IDX_DAY */
+            snprintf(text, sizeof(text), "Day %d", day);
+            break;
+        default:
+            snprintf(text, sizeof(text), "OK, %s %d", (month >= 1 && month <= 12) ? s_months[month - 1] : "", day);
+            break;
+    }
+    if (s_bday_fresh) {
+        char intro[128];
+        snprintf(intro, sizeof(intro), "Birthday. %s", text);
+        acc_speak_interrupt(intro);
+        s_bday_fresh = FALSE;
+    } else {
+        acc_speak_interrupt(text);
+    }
+    s_bday_field = field;
+    s_bday_month = month;
+    s_bday_day = day;
+}
+
+/* ---- "Is this OK?" ------------------------------------------------------- */
+
+static int s_confirm_listing = -1;
+static int s_confirm_selected = -1;
+
+void acc_confirm_opened(const u8* question, int question_len) {
+    char text[64];
+    acc_game_field_to_utf8(question, question_len, text, sizeof(text));
+    acc_speak_interrupt(text[0] ? text : "Is this OK?");
+    s_confirm_listing = FALSE;
+    s_confirm_selected = -1;
+}
+
+void acc_confirm_update(int listing, int selected, const u8* const* answers, const int* lengths, int count) {
+    char label[48];
+    char text[96];
+    if (!listing) {
+        s_confirm_listing = FALSE;
+        return;
+    }
+    if (s_confirm_listing && selected == s_confirm_selected) {
+        return;
+    }
+    if (selected < 0 || selected >= count) {
+        return;
+    }
+    acc_game_field_to_utf8(answers[selected], lengths[selected], label, sizeof(label));
+    snprintf(text, sizeof(text), "%s, %d of %d", label, selected + 1, count);
+    acc_speak_interrupt(text);
+    s_confirm_listing = TRUE;
+    s_confirm_selected = selected;
+}
+
+/* ---- Town tune ------------------------------------------------------------ */
+
+/* Note values 0..12 follow the editor's own sound table (single_se in
+ * m_mscore_ovl.c): NA_SE_NOTE_G_LOW .. NA_SE_NOTE_E. 13 plays a random note,
+ * 14 holds the previous note ("hold" in that table; the clear-all action
+ * fills every slot with it), 15 is silence ("off"). The previous project
+ * called 14 "rest". */
+static const char* const s_tune_notes[16] = {
+    "low G", "low A", "low B", "low C", "low D", "low E", "low F",
+    "G", "A", "B", "C", "D", "E", "random", "hold", "off",
+};
+
+static int s_tune_fresh = FALSE;
+static int s_tune_cursor = -2;
+static u8 s_tune_melody[16];
+static int s_tune_clearing = FALSE;
+static int s_tune_choice = -1;
+
+void acc_tune_opened(void) {
+    s_tune_fresh = TRUE;
+    s_tune_cursor = -2;
+    s_tune_clearing = FALSE;
+}
+
+static void tune_slot_text(int cursor, const u8* melody, char* out, int out_size) {
+    if (cursor >= 0 && cursor < 16) {
+        int note = melody[cursor] < 16 ? melody[cursor] : 15;
+        snprintf(out, out_size, "%d, %s", cursor + 1, s_tune_notes[note]);
+    } else if (cursor == 16) {
+        snprintf(out, out_size, "Finish");
+    } else {
+        out[0] = '\0';
+    }
+}
+
+void acc_tune_update(int cursor, const u8* melody) {
+    char slot[48];
+    char text[160];
+    if (cursor < 0) {
+        return;
+    }
+    if (!s_tune_fresh && cursor == s_tune_cursor && memcmp(melody, s_tune_melody, 16) == 0) {
+        return;
+    }
+    tune_slot_text(cursor, melody, slot, sizeof(slot));
+    if (s_tune_fresh) {
+        snprintf(text, sizeof(text), "Town tune, 16 notes. Up and down change the note, X plays, Y clears, Start saves. %s",
+                 slot);
+        acc_speak_interrupt(text);
+        s_tune_fresh = FALSE;
+    } else if (cursor == s_tune_cursor && cursor >= 0 && cursor < 16) {
+        /* Same slot, new note: just the note. */
+        acc_speak_interrupt(s_tune_notes[melody[cursor] < 16 ? melody[cursor] : 15]);
+    } else {
+        acc_speak_interrupt(slot);
+    }
+    s_tune_cursor = cursor;
+    memcpy(s_tune_melody, melody, 16);
+}
+
+void acc_tune_clear_update(int clearing, int clear_choice) {
+    if (!clearing) {
+        s_tune_clearing = FALSE;
+        return;
+    }
+    if (s_tune_clearing && clear_choice == s_tune_choice) {
+        return;
+    }
+    if (!s_tune_clearing) {
+        acc_speak_interrupt("Clear all notes?");
+        acc_speak_queue(clear_choice == 0 ? "Yes" : "No");
+    } else {
+        acc_speak_interrupt(clear_choice == 0 ? "Yes" : "No");
+    }
+    s_tune_clearing = TRUE;
+    s_tune_choice = clear_choice;
+}
+
 /* ---- Popups -------------------------------------------------------------- */
 
 void acc_popup_lines(const u8* const* lines, const int* lengths, int count) {

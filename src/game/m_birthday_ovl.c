@@ -3,6 +3,9 @@
 #include "m_common_data.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -152,6 +155,9 @@ static void mBR_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
       sAdo_SysTrgStart(NA_SE_CURSOL);
     }
   }
+#ifdef TARGET_PC
+  acc_birthday_update(*idx_p, data_p[mBR_Ovl_IDX_MONTH], data_p[mBR_Ovl_IDX_DAY]); /* accessibility */
+#endif
 }
 
 static void mBR_move_End(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -325,6 +331,9 @@ extern void mBR_birthday_ovl_construct(Submenu* submenu) {
 
   mBR_birthday_ovl_init(submenu);
   mBR_birthday_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+  acc_birthday_opened(); /* accessibility */
+#endif
 }
 
 extern void mBR_birthday_ovl_destruct(Submenu* submenu) {

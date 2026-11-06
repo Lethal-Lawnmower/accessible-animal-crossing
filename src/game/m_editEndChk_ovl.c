@@ -4,6 +4,9 @@
 #include "m_common_data.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -180,6 +183,20 @@ static void mEE_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
             editEndChk_ovl->question_alpha = ((f32)(30 - step) * 255.0f) / 15.0f;
         }
     }
+#ifdef TARGET_PC
+    {
+        /* accessibility */
+        const u8* answers[3];
+        int lengths[3];
+        int n = data->answer_num > 3 ? 3 : data->answer_num;
+        for (int i = 0; i < n; i++) {
+            answers[i] = mEE_answer_strings[i].str;
+            lengths[i] = mEE_answer_strings[i].len;
+        }
+        acc_confirm_update(editEndChk_ovl->moving_in && editEndChk_ovl->scale >= 1.0f, editEndChk_ovl->selected_answer,
+                           answers, lengths, n);
+    }
+#endif
 }
 
 static void mEE_move_End(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -341,6 +358,9 @@ extern void mEE_editEndChk_ovl_construct(Submenu* submenu) {
 
     mEE_editEndChk_ovl_init(submenu);
     mEE_editEndChk_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+    acc_confirm_opened(mEE_str_table, sizeof(mEE_str_table)); /* accessibility */
+#endif
 }
 
 extern void mEE_editEndChk_ovl_destruct(Submenu* submenu) {
