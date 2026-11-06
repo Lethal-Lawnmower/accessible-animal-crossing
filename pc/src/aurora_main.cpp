@@ -15,6 +15,7 @@
 #include "acgc/game_editor.hpp"
 #include "acgc/game_pointer.hpp"
 #include "aurora_debug.h"
+#include "access/host_menu.h"
 #include "access/hotkeys.h"
 #include "access/speech.h"
 #include "acgc/app_info.hpp"
@@ -148,6 +149,7 @@ bool ac_aurora_begin_frame() {
 void ac_aurora_end_frame() {
     if (s_frame_started) {
         acgc::ui::update();
+        acc_host_menu_update(); // accessibility
         ac_debug_imgui_draw();
         aurora_end_frame();
         pc_emu64_tlut_frame_drained();
@@ -474,6 +476,7 @@ bool run_prelaunch()
         const auto background = acgc::ui::theme::background();
         GXSetCopyClear({background.red, background.green, background.blue, background.alpha}, 0xFFFFFF);
         acgc::ui::update();
+        acc_host_menu_update(); // accessibility
         ac_debug_imgui_draw();
         aurora_end_frame();
         apply_frame_limit();

@@ -54,6 +54,10 @@ they are. Accessibility is added alongside them.
   [speech.md](speech.md). Menus are next; see [coverage.md](coverage.md).
 - 2026-11-06: text editor speech checked on the name screen; item menu
   (inventory) speech built but not yet runtime-checked.
+- 2026-11-06: every remaining old menu screen ported (built, not yet checked
+  in a run). Title screen, F5 repeat and the port's own menus (prelaunch,
+  settings) speak and were checked in runs. Details in
+  [coverage.md](coverage.md) and [speech.md](speech.md).
 
 ## Windows build check (2026-11-06)
 
@@ -96,19 +100,20 @@ booting the game.
 - 2026-11-06, user: investigate the old project's menus, UI, NPC dialogue,
   all dialogue, options and keyboard, carry them over to the new port, and
   look for screens that were never covered.
+- 2026-11-06, user: approved continuing with the remaining menus and using a
+  local, never-uploaded copy of an old saved town as a throwaway test save.
+  The copy turned out to be unusable with this port (see coverage.md).
 - 2026-11-06, user: reuse the existing public repository
   `Lethal-Lawnmower/accessible-animal-crossing`. The rewrite lives on its own
   branch, `rewrite`. The old `master` branch is left unchanged.
 
 ## Next steps
 
-1. Runtime-check the inventory speech (needs a game past the intro; a test
-   save would speed this up).
-2. Port the remaining old menu screens: clock, map, address book, notice
-   board, letters, warnings, bank, loan, birthday, edit confirmation, town
-   tune. Then the submenus never covered (diary, calendar, passwords,
-   memory card screens, pattern design).
-3. Add hotkeys (repeat dialogue, read back editor text) and the title screen
-   announcement.
-4. Make the port's own RmlUi menus (prelaunch, settings) speak.
-5. Design the new navigation from the game's own data structures.
+1. Make a test save with this port (the old project's save is rejected; see
+   coverage.md) and use it to check the inventory and the other built
+   screens in runs.
+2. Cover the submenus neither project has: diary, calendar, password make
+   and check, gyroid message board, memory card screens, pattern design.
+3. Check the remaining host menus (town select, controller setup, in-game
+   menu bar) and the settings tabs past the first.
+4. Design the new navigation from the game's own data structures.

@@ -140,3 +140,44 @@ plus both train choice windows.
 Not established: arrow-key text cursor moves (the test sent non-extended
 arrow key codes, and nothing was logged), and the on-screen grid with a
 controller.
+
+A later run confirmed the window prompts: "Enter your name. lowercase, empty.
+exclamation mark" and "Enter Destination. lowercase, empty. exclamation mark",
+then the typed name and town in dialogue ("You're going to tet?").
+
+## Other game screens
+
+- `pc/src/access/screens.c`: clock, bank, loan, warnings, diary privacy
+  question, birthday, "Is this OK?", town tune, town map. Value screens are
+  checked once per frame and speak only what changed.
+- `pc/src/access/mail_screens.c`: letters, address book, bulletin board.
+
+All built from the current source (hooks marked `/* accessibility */` in the
+matching `src/game/m_*_ovl.c` files). None checked in a run yet: they need a
+game past the intro.
+
+## Title screen and F5
+
+- `src/actor/ac_animal_logo.c`: "Animal Crossing. Press START!" when the
+  title starts waiting for Start (`aAL_ACTION_GAME_START`). Checked.
+- `pc/src/access/hotkeys.cpp`, called from the port's SDL event loop in
+  `pc/src/aurora_main.cpp`: F5 repeats the last interrupting announcement, or
+  reads back the editor's text while the editor is open. Checked on the title
+  screen (log: "repeat Animal Crossing. Press START!").
+
+## The port's own menus
+
+`pc/src/access/host_menu.cpp`, called after `acgc::ui::update()` each frame.
+It follows RmlUi focus (`aurora::rmlui::get_context()->GetFocusElement()`),
+reads the focused control's visible text, using the borealis `<key>` and
+`<value>` children as "label: value", and adds "unavailable" for disabled
+controls. Help for the focused control, which borealis puts in the pane to
+its right, is queued after it. When the same control's value changes, only
+the new value is spoken.
+
+Runtime check, 2026-11-06, no disc on the command line so the prelaunch
+screen showed: "Select Disc Image", "Settings", "Controls" as focus moved;
+in Settings: "Animal Crossing" (tab), "Data Folder: …" with its help, "Skip
+Prelaunch Menu: Off" then "Start the game with the last verified disc
+automatically.", "Check for Updates: On" then its help, and toggling it
+logged "Off", "On". Arrow keys were sent as extended key codes.
