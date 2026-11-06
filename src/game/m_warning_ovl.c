@@ -3,6 +3,9 @@
 #include "audio.h"
 #include "sys_matrix.h"
 #include "m_font.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -544,6 +547,22 @@ extern void mWR_warning_ovl_construct(Submenu* submenu) {
 
   mWR_warning_ovl_init(submenu);
   mWR_warning_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+  {
+    /* accessibility: speak the popup's text lines */
+    mWR_data_c* data = &wr_win_data[overlay->menu_info[mSM_OVL_WARNING].data0];
+    const u8* lines[8];
+    int lengths[8];
+    int n = data->num_lines < 8 ? data->num_lines : 8;
+    for (int i = 0; i < n; i++) {
+      lines[i] = data->lines[i].str;
+      lengths[i] = data->lines[i].str_len;
+    }
+    if (data->lines != NULL && n > 0) {
+      acc_popup_lines(lines, lengths, n);
+    }
+  }
+#endif
 }
 
 extern void mWR_warning_ovl_destruct(Submenu* submenu) {

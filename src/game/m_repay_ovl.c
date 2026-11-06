@@ -5,6 +5,9 @@
 #include "m_name_table.h"
 #include "m_player_lib.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -204,6 +207,9 @@ static void mRP_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
     repay_ovl->loan = Common_Get(now_private)->inventory.loan - repay_amount;
     repay_ovl->repay_amount = repay_amount;
   }
+#ifdef TARGET_PC
+  acc_repay_update(repay_ovl->cursor_idx, repay_ovl->repay_amount, repay_ovl->money, repay_ovl->loan); /* accessibility */
+#endif
 }
 
 static void mRP_move_End(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -437,6 +443,9 @@ extern void mRP_repay_ovl_construct(Submenu* submenu) {
 
   mRP_repay_ovl_init(submenu);
   mRP_repay_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+  acc_repay_opened(overlay->repay_ovl->money, overlay->repay_ovl->loan); /* accessibility */
+#endif
 }
 
 extern void mRP_repay_ovl_destruct(Submenu* submenu) {

@@ -4,6 +4,10 @@
 #include "sys_matrix.h"
 #include "m_common_data.h"
 #include "m_font.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#include "access/speech.h"
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -110,11 +114,17 @@ static void mCW_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
         if (cpwarning_ovl->diary_edit_mode == 1) {
             cpwarning_ovl->diary_edit_mode = 0;
             sAdo_SysTrgStart(NA_SE_CURSOL);
+#ifdef TARGET_PC
+            acc_speak_interrupt("Yes"); /* accessibility */
+#endif
         }
     } else if ((trigger & BUTTON_CRIGHT) != 0) {
         if (cpwarning_ovl->diary_edit_mode == 0) {
             cpwarning_ovl->diary_edit_mode = 1;
             sAdo_SysTrgStart(NA_SE_CURSOL);
+#ifdef TARGET_PC
+            acc_speak_interrupt("No"); /* accessibility */
+#endif
         }
     }
 
@@ -245,6 +255,15 @@ extern void mCW_cpwarning_ovl_construct(Submenu* submenu) {
 
     mCW_cpwarning_ovl_init(submenu, menu_info);
     mCW_cpwarning_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+    {
+        /* accessibility: question, then the highlighted answer */
+        const u8* lines[2] = { mCW_mes0, mCW_mes1 };
+        int lengths[2] = { sizeof(mCW_mes0), sizeof(mCW_mes1) };
+        acc_popup_lines(lines, lengths, 2);
+        acc_speak_queue(cpwarning_ovl_data.diary_edit_mode == 0 ? "Yes" : "No");
+    }
+#endif
 }
 
 extern void mCW_cpwarning_ovl_destruct(Submenu* submenu) {

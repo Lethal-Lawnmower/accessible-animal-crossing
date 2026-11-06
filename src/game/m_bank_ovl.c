@@ -6,6 +6,9 @@
 #include "m_font.h"
 #include "m_lib.h"
 #include "m_common_data.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -264,6 +267,9 @@ static void mBN_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu) {
             sAdo_SysTrgStart(0x426);
         }
     }
+#ifdef TARGET_PC
+    acc_bank_update(bank_ovl->cursol, bank_ovl->now_bell, bank_ovl->bank_bell, bank_ovl->player_bell); /* accessibility */
+#endif
 }
 
 static void mBN_move_End(Submenu* submenu, mSM_MenuInfo_c* menu) {
@@ -457,6 +463,9 @@ extern void mBN_bank_ovl_construct(Submenu* submenu) {
 
     mBN_bank_ovl_init(submenu);
     mBN_bank_ovl_set_proc(submenu);
+#ifdef TARGET_PC
+    acc_bank_opened(overlay->bank_ovl->now_bell, overlay->bank_ovl->bank_bell); /* accessibility */
+#endif
 }
 
 extern void mBN_bank_ovl_destruct(Submenu* submenu) {

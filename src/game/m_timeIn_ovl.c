@@ -3,6 +3,9 @@
 #include "m_common_data.h"
 #include "m_font.h"
 #include "sys_matrix.h"
+#ifdef TARGET_PC
+#include "access/screens.h" /* accessibility */
+#endif
 #ifdef MOUSE_INPUT
 #include "game_pointer.h"
 #endif
@@ -297,6 +300,9 @@ static void mTI_move_Play(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
       sAdo_SysTrgStart(0x1);
     }
   }
+#ifdef TARGET_PC
+  acc_clock_update(timeIn_ovl->sel_idx, timeIn_ovl->values); /* accessibility */
+#endif
 }
 
 static void mTI_move_End(Submenu* submenu, mSM_MenuInfo_c* menu_info) {
@@ -629,6 +635,9 @@ static void mTI_timeIn_ovl_init(Submenu* submenu) {
 
   timeIn_ovl->sel_idx = mTI_IDX_HOUR;
   timeIn_ovl->input_disabled_flag = FALSE;
+#ifdef TARGET_PC
+  acc_clock_opened(timeIn_ovl->sel_idx, timeIn_ovl->values); /* accessibility */
+#endif
 
   submenu->overlay->menu_control.animation_flag = FALSE;
   menu_info->proc_status = mSM_OVL_PROC_MOVE;
