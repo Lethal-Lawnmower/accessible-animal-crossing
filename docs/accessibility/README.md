@@ -4,6 +4,8 @@ Topic documents:
 
 - [coverage.md](coverage.md): which screens speak, and what is left
 - [speech.md](speech.md): Prism speech output, dialogue and choice speech
+- [navigation-research.md](navigation-research.md): the previous project's
+  movement, collision and navigation research, summarised for the rewrite
 
 ## Goal
 
@@ -130,4 +132,7 @@ booting the game.
    submenu). Deferred by the user on 2026-11-06.
 3. Check the remaining host menus (town select, controller setup, in-game
    menu bar) and the settings tabs past the first.
-4. Design the new navigation from the game's own data structures.
+4. Design the new navigation from the game's own data structures. The old
+   research is indexed and summarised in
+   [navigation-research.md](navigation-research.md) (2026-11-07); recheck
+   it against this source first.
